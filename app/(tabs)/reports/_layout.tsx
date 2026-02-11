@@ -1,0 +1,7 @@
+// app/(tabs)/reports/_layout.tsx
+import { Stack } from "expo-router";
+import React from "react";
+
+export default function ReportsLayout() {
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
