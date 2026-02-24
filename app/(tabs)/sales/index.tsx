@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
@@ -32,13 +32,27 @@ export default function SalesIndex() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    if (authUser?.id) void salesActions.bootstrap(authUser.id);
-    void inventoryActions.bootstrap();
+    let alive = true;
 
-    if (activeBusinessId) {
-      void inventoryActions.loadProducts(activeBusinessId);
-      if (authUser?.id) void salesActions.loadSales(activeBusinessId);
-    }
+    (async () => {
+      if (authUser?.id) {
+        await salesActions.bootstrap(authUser.id);
+        await inventoryActions.bootstrap(authUser.id);
+      } else {
+        await inventoryActions.bootstrap();
+      }
+
+      if (!alive) return;
+
+      if (activeBusinessId) {
+        await inventoryActions.loadProducts(activeBusinessId);
+        if (authUser?.id) await salesActions.loadSales(activeBusinessId);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [authUser?.id, activeBusinessId]);
 
   const products = useMemo(() => {
@@ -157,6 +171,33 @@ export default function SalesIndex() {
                     gap: 10,
                   }}
                 >
+                  {/* ✅ Miniatura */}
+                  <View
+                    style={{
+                      width: 54,
+                      height: 54,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.card2,
+                      overflow: "hidden",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {p.imageUri ? (
+                      <Image
+                        source={{ uri: String(p.imageUri) }}
+                        style={{ width: "100%", height: "100%" }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 10 }}>
+                        Sin foto
+                      </Text>
+                    )}
+                  </View>
+
                   <View style={{ flex: 1 }}>
                     <Text
                       style={{

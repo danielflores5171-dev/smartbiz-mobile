@@ -1,4 +1,5 @@
 import { useTheme } from "@/context/theme-context";
+import { useAuthStore } from "@/src/store/authStore";
 import { businessActions, useBusinessStore } from "@/src/store/businessStore";
 import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
@@ -10,14 +11,28 @@ export default function BusinessIndex() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const authUser = useAuthStore((s) => s.user);
+
   const businesses = useBusinessStore((s) => s.businesses);
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const loading = useBusinessStore((s) => s.loading);
   const error = useBusinessStore((s) => s.error);
 
+  // para evitar bootstraps repetidos / loops:
+  const bizHydrated = useBusinessStore((s) => s.hydrated);
+  const bizUserId = useBusinessStore((s) => s.userId);
+
+  const hasActive = !!activeBusinessId;
+
   useEffect(() => {
-    if (!businesses.length && !loading) void businessActions.bootstrap();
-  }, [businesses.length, loading]);
+    // ✅ bootstrap por usuario (clave para multiusuario)
+    if (!authUser?.id) return;
+
+    // ✅ solo si falta hidratar o cambió de usuario
+    if (!bizHydrated || bizUserId !== authUser.id) {
+      void businessActions.bootstrap(authUser.id);
+    }
+  }, [authUser?.id, bizHydrated, bizUserId]);
 
   return (
     <Screen scroll padded>
@@ -61,6 +76,28 @@ export default function BusinessIndex() {
           Toca uno para activarlo. Usa “Editar” para modificar.
         </Text>
 
+        {/* ✅ Empty state */}
+        {!loading && businesses.length === 0 ? (
+          <View
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card2,
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: "900" }}>
+              Aún no tienes negocios
+            </Text>
+            <Text style={{ color: colors.muted, marginTop: 4, fontSize: 12 }}>
+              Crea tu primer negocio para poder usar inventario, ventas y
+              reportes.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={{ marginTop: 14, gap: 10 }}>
           {businesses.map((b) => {
             const isActive = b.id === activeBusinessId;
@@ -90,6 +127,7 @@ export default function BusinessIndex() {
                 >
                   {b.name}
                 </Text>
+
                 <Text
                   style={{ color: colors.muted, marginTop: 4, fontSize: 12 }}
                 >
@@ -123,12 +161,20 @@ export default function BusinessIndex() {
           })}
         </View>
 
-        <View style={{ marginTop: 14 }}>
+        <View style={{ marginTop: 14, gap: 10 }}>
           <AppButton
             title="CREAR NEGOCIO"
             variant="secondary"
             onPress={() => router.push("/business/create" as any)}
           />
+
+          {hasActive ? (
+            <AppButton
+              title="DESACTIVAR NEGOCIO"
+              variant="secondary"
+              onPress={() => businessActions.setActiveBusiness(null)}
+            />
+          ) : null}
         </View>
       </View>
 
@@ -140,6 +186,7 @@ export default function BusinessIndex() {
           borderColor: colors.border,
           borderRadius: 22,
           padding: 16,
+          opacity: hasActive ? 1 : 0.5,
         }}
       >
         <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
@@ -149,20 +196,35 @@ export default function BusinessIndex() {
           Configura empleados y proveedores del negocio activo.
         </Text>
 
+        {!hasActive ? (
+          <Text style={{ color: colors.muted, marginTop: 10, fontSize: 12 }}>
+            Primero activa un negocio para entrar a esta sección.
+          </Text>
+        ) : null}
+
         <View style={{ marginTop: 14, gap: 10 }}>
           <AppButton
             title="EMPLEADOS"
-            onPress={() => router.push("/business/employees" as any)}
+            onPress={() => {
+              if (!hasActive) return;
+              router.push("/business/employees" as any);
+            }}
             variant="secondary"
           />
           <AppButton
             title="PROVEEDORES"
-            onPress={() => router.push("/business/suppliers" as any)}
+            onPress={() => {
+              if (!hasActive) return;
+              router.push("/business/suppliers" as any);
+            }}
             variant="secondary"
           />
           <AppButton
             title="AJUSTES DEL NEGOCIO"
-            onPress={() => router.push("/business/settings" as any)}
+            onPress={() => {
+              if (!hasActive) return;
+              router.push("/business/settings" as any);
+            }}
             variant="secondary"
           />
         </View>

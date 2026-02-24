@@ -13,14 +13,22 @@ type StoreState = {
   enabled: DashboardWidgetsEnabled;
   hydrated: boolean;
 
+  // ✅ userId actual (opcional, para persist automático)
+  userId: string | null;
+
   toggle: (k: DashboardWidgetKey) => void;
   setEnabled: (k: DashboardWidgetKey, v: boolean) => void;
 
-  hydrate: () => Promise<void>;
+  hydrate: (userId?: string) => Promise<void>;
   persist: () => Promise<void>;
+  clearLocalMemoryOnly: () => void;
 };
 
-const STORAGE_KEY = "smartbiz.dashboardWidgets.v1";
+const BASE_KEY = "smartbiz.dashboardWidgets.v2";
+
+function keyForUser(userId: string) {
+  return `${BASE_KEY}:${userId}`;
+}
 
 const defaultEnabled: Record<DashboardWidgetKey, boolean> = {
   tp_revenue: true,
@@ -29,56 +37,77 @@ const defaultEnabled: Record<DashboardWidgetKey, boolean> = {
   sp_count_by_day: true,
 };
 
-// ✅ Tipamos el creator explícitamente (evita any en set/get)
 const creator: StateCreator<StoreState> = (set, get) => ({
   enabled: defaultEnabled,
   hydrated: false,
+  userId: null,
 
   toggle: (k: DashboardWidgetKey) => {
     set((prev) => ({
       enabled: { ...prev.enabled, [k]: !prev.enabled[k] },
     }));
+    void get().persist();
   },
 
   setEnabled: (k: DashboardWidgetKey, v: boolean) => {
     set((prev) => ({
       enabled: { ...prev.enabled, [k]: v },
     }));
+    void get().persist();
   },
 
-  hydrate: async () => {
+  hydrate: async (userId?: string) => {
+    // compat: si no pasan userId, solo hidratamos defaults (no compartimos)
+    if (!userId) {
+      set({ enabled: defaultEnabled, hydrated: true, userId: null });
+      return;
+    }
+
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const raw = await AsyncStorage.getItem(keyForUser(userId));
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<{
           enabled: DashboardWidgetsEnabled;
         }>;
         if (parsed?.enabled) {
           set({ enabled: { ...defaultEnabled, ...parsed.enabled } });
+        } else {
+          set({ enabled: defaultEnabled });
         }
+      } else {
+        set({ enabled: defaultEnabled });
       }
     } catch {
-      // ignore
+      set({ enabled: defaultEnabled });
     } finally {
-      set({ hydrated: true });
+      set({ hydrated: true, userId });
     }
   },
 
   persist: async () => {
+    const { enabled, userId, hydrated } = get();
+    if (!hydrated) return;
+    if (!userId) return;
     try {
-      const { enabled } = get();
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ enabled }));
+      await AsyncStorage.setItem(
+        keyForUser(userId),
+        JSON.stringify({ enabled }),
+      );
     } catch {
       // ignore
     }
+  },
+
+  clearLocalMemoryOnly: () => {
+    set({ enabled: defaultEnabled, hydrated: false, userId: null });
   },
 });
 
 export const useDashboardWidgetsStore = create<StoreState>(creator);
 
 // Helpers opcionales
-export async function hydrateDashboardWidgets() {
-  await useDashboardWidgetsStore.getState().hydrate();
+export async function hydrateDashboardWidgets(userId?: string) {
+  await useDashboardWidgetsStore.getState().hydrate(userId);
 }
 
 export async function persistDashboardWidgets() {

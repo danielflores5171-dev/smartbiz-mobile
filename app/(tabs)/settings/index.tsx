@@ -86,7 +86,6 @@ function Card({
             borderRadius: 14,
             alignItems: "center",
             justifyContent: "center",
-            // ✅ FIX LIGHT: nada hardcodeado, usa token
             backgroundColor: colors.accentSoft,
             borderWidth: 1,
             borderColor: colors.border,
@@ -210,12 +209,14 @@ export default function SettingsIndex() {
     setMode(m);
   };
 
+  // (los dejamos por compat, aunque UI ya solo muestra 1 opción)
   const setCurrencyChoice = (c: CurrencyCode) => settingsActions.setCurrency(c);
   const setLocaleChoice = (l: LocaleCode) => settingsActions.setLocale(l);
   const setTimezoneChoice = (tz: TimezoneCode) =>
     settingsActions.setTimezone(tz);
   const setDateFormatChoice = (df: DateFormat) =>
     settingsActions.setDateFormat(df);
+
   const toggleSystemNotifications = () =>
     settingsActions.setSystemNotifications(!systemNotifications);
 
@@ -319,7 +320,7 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Moneda */}
+      {/* Moneda (solo MXN) */}
       <Card
         icon="cash-outline"
         title="Moneda"
@@ -331,20 +332,10 @@ export default function SettingsIndex() {
             active={currency === "MXN"}
             onPress={() => setCurrencyChoice("MXN")}
           />
-          <OptionPill
-            label="USD"
-            active={currency === "USD"}
-            onPress={() => setCurrencyChoice("USD")}
-          />
-          <OptionPill
-            label="EUR"
-            active={currency === "EUR"}
-            onPress={() => setCurrencyChoice("EUR")}
-          />
         </View>
       </Card>
 
-      {/* Idioma */}
+      {/* Idioma (solo ES-MX) */}
       <Card
         icon="language-outline"
         title="Idioma"
@@ -356,11 +347,6 @@ export default function SettingsIndex() {
             active={locale === "es-MX"}
             onPress={() => setLocaleChoice("es-MX")}
           />
-          <OptionPill
-            label="EN (US)"
-            active={locale === "en-US"}
-            onPress={() => setLocaleChoice("en-US")}
-          />
         </View>
 
         <Text style={{ color: colors.muted, marginTop: 10, fontSize: 12 }}>
@@ -371,7 +357,7 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Zona horaria */}
+      {/* Zona horaria (solo CDMX) */}
       <Card
         icon="time-outline"
         title="Zona horaria"
@@ -383,16 +369,6 @@ export default function SettingsIndex() {
             active={timezone === "America/Mexico_City"}
             onPress={() => setTimezoneChoice("America/Mexico_City")}
           />
-          <OptionPill
-            label="UTC"
-            active={timezone === "UTC"}
-            onPress={() => setTimezoneChoice("UTC")}
-          />
-          <OptionPill
-            label="Los Ángeles"
-            active={timezone === "America/Los_Angeles"}
-            onPress={() => setTimezoneChoice("America/Los_Angeles")}
-          />
         </View>
 
         <Text style={{ color: colors.muted, marginTop: 10, fontSize: 12 }}>
@@ -403,7 +379,7 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Formato fecha */}
+      {/* Formato fecha (solo DMY) */}
       <Card
         icon="calendar-outline"
         title="Formato de fecha"
@@ -414,16 +390,6 @@ export default function SettingsIndex() {
             label="DMY (31/12/2026)"
             active={dateFormat === "DMY"}
             onPress={() => setDateFormatChoice("DMY")}
-          />
-          <OptionPill
-            label="MDY (12/31/2026)"
-            active={dateFormat === "MDY"}
-            onPress={() => setDateFormatChoice("MDY")}
-          />
-          <OptionPill
-            label="YMD (2026/12/31)"
-            active={dateFormat === "YMD"}
-            onPress={() => setDateFormatChoice("YMD")}
           />
         </View>
 
@@ -457,7 +423,6 @@ export default function SettingsIndex() {
               borderRadius: 999,
               borderWidth: 1,
               borderColor: colors.border,
-              // ✅ FIX LIGHT: usa tokens del theme
               backgroundColor: systemNotifications
                 ? colors.successBg
                 : colors.pillBg,
@@ -472,7 +437,7 @@ export default function SettingsIndex() {
         </View>
       </Card>
 
-      {/* Más */}
+      {/* Más (sin pantalla aparte de About) */}
       <Card
         icon="options-outline"
         title="Más"
@@ -491,12 +456,68 @@ export default function SettingsIndex() {
             subtitle="Reiniciar datos guardados (smartbiz.*)."
             onPress={() => router.push("/(tabs)/settings/data" as any)}
           />
-          <NavRow
-            icon="information-circle-outline"
-            title="Acerca de"
-            subtitle="Versión y notas."
-            onPress={() => router.push("/(tabs)/settings/about" as any)}
-          />
+
+          {/* ✅ Acerca de inline (sin navegación) */}
+          <View
+            style={{
+              paddingVertical: 12,
+              paddingHorizontal: 12,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card2,
+            }}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 14,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.accentSoft,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color={colors.icon}
+                />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: "900" }}>
+                  Acerca de
+                </Text>
+                <Text
+                  style={{ color: colors.muted, marginTop: 2, fontSize: 12 }}
+                >
+                  SmartBiz es una app para gestionar inventario, ventas y
+                  reportes de un negocio.
+                </Text>
+              </View>
+            </View>
+
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.divider,
+                marginVertical: 12,
+              }}
+            />
+
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              Versión:{" "}
+              <Text style={{ color: colors.text, fontWeight: "900" }}>
+                SmartBiz v1
+              </Text>
+            </Text>
+          </View>
         </View>
       </Card>
 

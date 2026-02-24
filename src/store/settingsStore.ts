@@ -4,6 +4,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 export type ThemeMode = "normal" | "light" | "dark";
 
+// ✅ aunque el tipo permita varios, el UI y el store se “clavan” a MXN
 export type CurrencyCode = "MXN" | "USD" | "EUR";
 export type TaxRatePreset = 0.16;
 
@@ -71,20 +72,22 @@ async function persist() {
   persistTimer = setTimeout(async () => {
     try {
       const s = getState();
+
+      // ✅ forzamos “solo lo que usas” aunque haya valores viejos
       await AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           themeMode: s.themeMode,
-          currency: s.currency,
+          currency: "MXN",
           taxRate: 0.16,
-          locale: s.locale,
-          timezone: s.timezone,
-          dateFormat: s.dateFormat,
+          locale: "es-MX",
+          timezone: "America/Mexico_City",
+          dateFormat: "DMY",
           systemNotifications: s.systemNotifications,
         }),
       );
     } catch {
-      // no-op: no queremos crashear por storage
+      // no-op
     }
   }, 150);
 }
@@ -114,43 +117,23 @@ async function hydrate() {
         ? parsed.themeMode
         : defaults.themeMode;
 
-    const safeCurrency: CurrencyCode =
-      parsed.currency === "USD" || parsed.currency === "EUR"
-        ? parsed.currency
-        : defaults.currency;
-
-    const safeLocale: LocaleCode =
-      parsed.locale === "en-US" ? "en-US" : defaults.locale;
-
-    const safeTimezone: TimezoneCode =
-      parsed.timezone === "UTC" ||
-      parsed.timezone === "America/Los_Angeles" ||
-      parsed.timezone === "America/Mexico_City"
-        ? parsed.timezone
-        : defaults.timezone;
-
-    const safeDateFormat: DateFormat =
-      parsed.dateFormat === "MDY" || parsed.dateFormat === "YMD"
-        ? parsed.dateFormat
-        : defaults.dateFormat;
-
     const safeSystemNotifications =
       typeof parsed.systemNotifications === "boolean"
         ? parsed.systemNotifications
         : defaults.systemNotifications;
 
+    // ✅ lo demás queda fijo a MX / ES / CDMX / DMY
     setState({
       hydrated: true,
       themeMode: safeThemeMode,
-      currency: safeCurrency,
+      currency: "MXN",
       taxRate: 0.16,
-      locale: safeLocale,
-      timezone: safeTimezone,
-      dateFormat: safeDateFormat,
+      locale: "es-MX",
+      timezone: "America/Mexico_City",
+      dateFormat: "DMY",
       systemNotifications: safeSystemNotifications,
     });
   } catch {
-    // JSON corrupto o incompatible -> volvemos a defaults y marcamos hydrated
     setState({ hydrated: true, ...defaults });
   }
 }
@@ -165,24 +148,28 @@ export const settingsActions = {
     setState({ themeMode: m });
   },
 
-  setCurrency(c: CurrencyCode) {
-    setState({ currency: c });
+  // ✅ aunque te pasen otra, se queda en MXN
+  setCurrency(_: CurrencyCode) {
+    setState({ currency: "MXN" });
   },
 
   setTaxRate(_: number) {
     setState({ taxRate: 0.16 });
   },
 
-  setLocale(locale: LocaleCode) {
-    setState({ locale });
+  // ✅ fijo ES-MX
+  setLocale(_: LocaleCode) {
+    setState({ locale: "es-MX" });
   },
 
-  setTimezone(timezone: TimezoneCode) {
-    setState({ timezone });
+  // ✅ fijo CDMX
+  setTimezone(_: TimezoneCode) {
+    setState({ timezone: "America/Mexico_City" });
   },
 
-  setDateFormat(dateFormat: DateFormat) {
-    setState({ dateFormat });
+  // ✅ fijo DMY
+  setDateFormat(_: DateFormat) {
+    setState({ dateFormat: "DMY" });
   },
 
   setSystemNotifications(v: boolean) {

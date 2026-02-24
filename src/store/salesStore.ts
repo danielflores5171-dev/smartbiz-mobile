@@ -5,17 +5,14 @@ import { salesService } from "../services/salesService";
 import type { ID } from "../types/business";
 import type { CartItem, PaymentMethod, Sale } from "../types/sales";
 import { inventoryActions } from "./inventoryStore";
-
-// ✅ opcional: notificación al cerrar venta (si ya está bootstrap de notifs)
 import { notificationActions } from "./notificationStore";
 
 type State = {
-  // por usuario
   userId: string | null;
 
   cart: CartItem[];
-  discount: number; // monto fijo
-  salesByBusiness: Record<string, Sale[]>; // businessId -> sales
+  discount: number;
+  salesByBusiness: Record<string, Sale[]>;
 
   lastSaleId: ID | null;
 
@@ -45,10 +42,10 @@ const state: State = {
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
-function setState(patch: Partial<State>) {
+function setState(patch: Partial<State>, opts?: { skipPersist?: boolean }) {
   Object.assign(state, patch);
   emit();
-  void persist();
+  if (!opts?.skipPersist) void persist();
 }
 function getState() {
   return state;
@@ -64,51 +61,76 @@ async function persist() {
   if (persistTimer) clearTimeout(persistTimer);
 
   persistTimer = setTimeout(async () => {
-    await AsyncStorage.setItem(
-      keyForUser(s.userId!),
-      JSON.stringify({
-        cart: s.cart,
-        discount: s.discount,
-        salesByBusiness: s.salesByBusiness,
-        lastSaleId: s.lastSaleId,
-      }),
-    );
+    try {
+      await AsyncStorage.setItem(
+        keyForUser(s.userId!),
+        JSON.stringify({
+          cart: s.cart,
+          discount: s.discount,
+          salesByBusiness: s.salesByBusiness,
+          lastSaleId: s.lastSaleId,
+        }),
+      );
+    } catch {
+      // demo
+    }
   }, 150);
 }
 
 async function hydrateForUser(userId: string) {
-  const raw = await AsyncStorage.getItem(keyForUser(userId));
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(keyForUser(userId));
+  } catch {
+    raw = null;
+  }
+
   if (!raw) {
-    Object.assign(state, {
-      userId,
-      cart: [],
-      discount: 0,
-      salesByBusiness: {},
-      lastSaleId: null,
-      loading: false,
-      error: null,
-      hydrated: true,
-    });
-    emit();
+    setState(
+      {
+        userId,
+        cart: [],
+        discount: 0,
+        salesByBusiness: {},
+        lastSaleId: null,
+        loading: false,
+        error: null,
+        hydrated: true,
+      },
+      { skipPersist: true },
+    );
     return;
   }
 
   try {
     const parsed = JSON.parse(raw) as any;
-    Object.assign(state, {
-      userId,
-      cart: parsed?.cart ?? [],
-      discount: parsed?.discount ?? 0,
-      salesByBusiness: parsed?.salesByBusiness ?? {},
-      lastSaleId: parsed?.lastSaleId ?? null,
-      loading: false,
-      error: null,
-      hydrated: true,
-    });
-    emit();
+    setState(
+      {
+        userId,
+        cart: parsed?.cart ?? [],
+        discount: parsed?.discount ?? 0,
+        salesByBusiness: parsed?.salesByBusiness ?? {},
+        lastSaleId: parsed?.lastSaleId ?? null,
+        loading: false,
+        error: null,
+        hydrated: true,
+      },
+      { skipPersist: true },
+    );
   } catch {
-    Object.assign(state, { userId, hydrated: true });
-    emit();
+    setState(
+      {
+        userId,
+        cart: [],
+        discount: 0,
+        salesByBusiness: {},
+        lastSaleId: null,
+        loading: false,
+        error: null,
+        hydrated: true,
+      },
+      { skipPersist: true },
+    );
   }
 }
 
@@ -139,51 +161,62 @@ function requireUserId() {
 }
 
 export const salesActions = {
-  // ✅ boot por usuario
   async bootstrap(userId?: string) {
-    // compat: si no pasan userId, solo marcamos hydrated para no tronar UI vieja
     if (!userId) {
-      if (!getState().hydrated) setState({ hydrated: true });
+      if (!getState().hydrated)
+        setState({ hydrated: true }, { skipPersist: true });
       return;
     }
 
     if (getState().hydrated && getState().userId === userId) return;
 
-    setState({
-      hydrated: false,
-      loading: false,
-      error: null,
-      userId,
-      cart: [],
-      discount: 0,
-      salesByBusiness: {},
-      lastSaleId: null,
-    });
+    setState(
+      {
+        hydrated: false,
+        loading: false,
+        error: null,
+        userId,
+        cart: [],
+        discount: 0,
+        salesByBusiness: {},
+        lastSaleId: null,
+      },
+      { skipPersist: true },
+    );
 
     await hydrateForUser(userId);
+
+    // opcional: asegura persist en formato nuevo
+    void persist();
   },
 
+  clearLocalMemoryOnly() {
+    setState(
+      {
+        userId: null,
+        cart: [],
+        discount: 0,
+        salesByBusiness: {},
+        lastSaleId: null,
+        loading: false,
+        error: null,
+        hydrated: false,
+      },
+      { skipPersist: true },
+    );
+  },
+
+  // compat
   clearLocal() {
-    setState({
-      cart: [],
-      discount: 0,
-      salesByBusiness: {},
-      lastSaleId: null,
-      loading: false,
-      error: null,
-      hydrated: false,
-      userId: null,
-    });
+    this.clearLocalMemoryOnly();
   },
 
-  // “GET” ventas por negocio (trae de AsyncStorage via service)
   async loadSales(businessId: ID) {
     const userId = requireUserId();
     setState({ loading: true, error: null });
 
     try {
       const api = await salesService.listSales(userId, businessId);
-
       const next = { ...getState().salesByBusiness, [businessId]: api };
       setState({ salesByBusiness: next, loading: false, error: null });
     } catch (e: any) {
@@ -211,7 +244,6 @@ export const salesActions = {
     }
   },
 
-  // carrito
   addToCart(item: Omit<CartItem, "qty">) {
     const cart = getState().cart.slice();
     const idx = cart.findIndex((c) => c.productId === item.productId);
@@ -252,7 +284,6 @@ export const salesActions = {
     setState({ discount: Math.max(0, value || 0) });
   },
 
-  // “POST” Cerrar venta + descontar inventario
   async checkout(params: {
     businessId: ID;
     paymentMethod: PaymentMethod;
@@ -303,7 +334,7 @@ export const salesActions = {
         });
       }
     } catch {
-      // demo: si falla, no tronamos
+      // demo
     }
 
     // 2) crea venta persistente por usuario+negocio
@@ -314,7 +345,6 @@ export const salesActions = {
         saleInput,
       );
 
-      // 3) refresca cache local del negocio
       const current = getState().salesByBusiness[params.businessId] ?? [];
       const nextList = [apiSale, ...current].reduce<Sale[]>((acc, x) => {
         if (acc.some((s) => s.id === x.id)) return acc;
@@ -331,10 +361,8 @@ export const salesActions = {
         loading: false,
       });
 
-      // 4) limpia carrito
       setState({ cart: [], discount: 0 });
 
-      // 5) notificación (opcional)
       void notificationActions.add({
         kind: "sales",
         title: "Venta registrada",

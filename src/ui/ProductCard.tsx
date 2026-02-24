@@ -1,7 +1,7 @@
 // src/ui/ProductCard.tsx
 import { useTheme } from "@/context/theme-context";
 import React, { useMemo } from "react";
-import { Pressable, Text, View, type ViewStyle } from "react-native";
+import { Image, Pressable, Text, View, type ViewStyle } from "react-native";
 
 type Product = {
   id: string;
@@ -11,6 +11,7 @@ type Product = {
   unit?: string | null;
   price?: number | null;
   stock?: number | null;
+  imageUri?: string | null;
 };
 
 type Props = {
@@ -48,8 +49,33 @@ export default function ProductCard({ product, onPress, style }: Props) {
         style,
       ]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        {/* ✅ miniatura */}
+        <View
+          style={{
+            width: 54,
+            height: 54,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.card,
+            overflow: "hidden",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {product.imageUri ? (
+            <Image
+              source={{ uri: product.imageUri }}
+              style={{ width: "100%", height: "100%" }}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={{ color: colors.muted, fontSize: 10 }}>Sin foto</Text>
+          )}
+        </View>
+
+        <View style={{ flex: 1 }}>
           <Text
             numberOfLines={1}
             style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
@@ -65,21 +91,18 @@ export default function ProductCard({ product, onPress, style }: Props) {
               {meta}
             </Text>
           ) : null}
-        </View>
 
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
             Stock:{" "}
             <Text style={{ color: colors.accent, fontWeight: "900" }}>
               {stock}
             </Text>
+            {Number.isFinite(price) ? (
+              <>
+                {"  "}· ${price.toFixed(2)}
+              </>
+            ) : null}
           </Text>
-
-          {Number.isFinite(price) ? (
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-              ${price.toFixed(2)}
-            </Text>
-          ) : null}
         </View>
       </View>
     </Pressable>

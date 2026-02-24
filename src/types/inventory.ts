@@ -20,6 +20,10 @@ export type Product = {
   stock: number;
   minStock?: number;
 
+  // ✅ IMAGENES (demo/local + futuro backend)
+  imageUri?: string; // local file uri (FileSystem.documentDirectory...)
+  imageUrl?: string; // remoto (Supabase Storage / CDN) - futuro
+
   status: ProductStatus;
 
   createdAt: string;

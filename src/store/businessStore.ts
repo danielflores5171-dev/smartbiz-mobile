@@ -8,7 +8,6 @@ type State = {
   // ✅ por usuario
   userId: string | null;
 
-  // ✅ bandera épica
   hydrated: boolean;
 
   businesses: Business[];
@@ -21,7 +20,7 @@ type State = {
   error: string | null;
 };
 
-const BASE_KEY = "smartbiz.businessStore.v2";
+const BASE_KEY = "smartbiz.businessStore.v3";
 const keyForUser = (userId: string) => `${BASE_KEY}:${userId}`;
 
 const state: State = {
@@ -92,21 +91,7 @@ function setState(patch: Partial<State>, opts?: { skipPersist?: boolean }) {
   if (!opts?.skipPersist) persist();
 }
 
-function seedBusiness(): Business {
-  return {
-    id: "demo-biz",
-    name: "Negocio X",
-    legalName: "Negocio X S.A. de C.V.",
-    phone: "33 0000 0000",
-    email: "negocio@demo.com",
-    address: "Guadalajara, Jalisco",
-    status: "active",
-    createdAt: new Date().toISOString(),
-  };
-}
-
 async function hydrateForUser(userId: string) {
-  // ✅ importante: NO disparar persist durante hydrate
   const raw = await AsyncStorage.getItem(keyForUser(userId));
 
   if (!raw) {
@@ -115,7 +100,7 @@ async function hydrateForUser(userId: string) {
         userId,
         hydrated: true,
         businesses: [],
-        activeBusinessId: null,
+        activeBusinessId: null, // ✅ NO activo por default
         employees: [],
         suppliers: [],
         loading: false,
@@ -134,7 +119,7 @@ async function hydrateForUser(userId: string) {
         userId,
         hydrated: true,
         businesses: parsed?.businesses ?? [],
-        activeBusinessId: parsed?.activeBusinessId ?? null,
+        activeBusinessId: parsed?.activeBusinessId ?? null, // ✅ respeta lo que el user eligió
         employees: parsed?.employees ?? [],
         suppliers: parsed?.suppliers ?? [],
         loading: false,
@@ -143,7 +128,6 @@ async function hydrateForUser(userId: string) {
       { skipPersist: true },
     );
   } catch {
-    // storage corrupto -> arranque limpio
     setState(
       {
         userId,
@@ -162,21 +146,18 @@ async function hydrateForUser(userId: string) {
 
 export const businessActions = {
   /**
-   * ✅ ÉPICA: bootstrap por usuario
-   * IMPORTANTE: debes llamarlo como businessActions.bootstrap(authUser.id)
+   * ✅ Bootstrap por usuario (OBLIGATORIO pasar userId)
    */
   async bootstrap(userId?: string) {
     if (!userId) {
-      // compat: si tu layout viejo lo llama sin userId, al menos no truena
+      // si alguien lo llama sin userId, no truena, pero no cargamos nada
       if (!getState().hydrated)
         setState({ hydrated: true }, { skipPersist: true });
       return;
     }
 
-    // ya hidratado para ese user
     if (getState().hydrated && getState().userId === userId) return;
 
-    // arranque controlado
     setState(
       {
         userId,
@@ -193,29 +174,24 @@ export const businessActions = {
 
     await hydrateForUser(userId);
 
-    // si no hay data, seed (o remoto)
-    if (getState().businesses.length === 0) {
-      try {
-        const remote = await businessService.listBusinesses();
-        const seed = remote.length > 0 ? remote : [seedBusiness()];
-        setState({
-          businesses: seed,
-          activeBusinessId: seed[0]?.id ?? null,
-        });
-        await flush();
-      } catch {
-        const seed = [seedBusiness()];
-        setState({
-          businesses: seed,
-          activeBusinessId: seed[0]?.id ?? null,
-        });
+    // ✅ IMPORTANTÍSIMO:
+    // Ya NO sembramos seed ni activamos nada.
+    // Si quisieras traer remoto, lo haríamos solo para LISTAR,
+    // pero sin autoseleccionar un negocio.
+    try {
+      const remote = await businessService.listBusinesses();
+      if (remote.length > 0 && getState().businesses.length === 0) {
+        setState({ businesses: remote }); // ✅ NO set activeBusinessId aquí
         await flush();
       }
+    } catch {
+      // demo: silencioso
     }
 
     setState({ loading: false, hydrated: true });
 
-    // precarga del negocio activo (sin reventar)
+    // ✅ Si ya había un negocio activo (porque el usuario lo eligió antes),
+    // precargamos dependientes.
     const bizId = getState().activeBusinessId;
     if (bizId) {
       await this.loadEmployees(bizId);
@@ -225,8 +201,7 @@ export const businessActions = {
   },
 
   /**
-   * ✅ Limpia SOLO memoria (para UI), pero NO borra storage.
-   * Útil si quieres “reset visual” al desloguear sin perder datos.
+   * Útil al desloguear para que no se quede “pegado” el state anterior.
    */
   clearLocalMemoryOnly() {
     setState(
@@ -244,9 +219,6 @@ export const businessActions = {
     );
   },
 
-  /**
-   * ✅ Si algún día quieres borrar también storage del usuario actual.
-   */
   async clearLocalAndStorage() {
     const uid = getState().userId;
     this.clearLocalMemoryOnly();
@@ -268,10 +240,15 @@ export const businessActions = {
     return s.businesses.find((b) => b.id === s.activeBusinessId) ?? null;
   },
 
-  setActiveBusiness(id: ID) {
+  /**
+   * ✅ El usuario elige manualmente su negocio
+   */
+  setActiveBusiness(id: ID | null) {
     setState({ activeBusinessId: id });
-    void this.loadEmployees(id);
-    void this.loadSuppliers(id);
+    if (id) {
+      void this.loadEmployees(id);
+      void this.loadSuppliers(id);
+    }
   },
 
   // ---- Businesses ----
@@ -281,19 +258,16 @@ export const businessActions = {
       const created = await businessService.createBusiness(input);
 
       const next = [created, ...getState().businesses];
+
+      // ✅ NO activar automáticamente
       setState({
         businesses: next,
-        activeBusinessId: created.id,
         loading: false,
       });
 
       await flush();
 
-      // precarga dependientes
-      await this.refreshEmployees(created.id);
-      await this.refreshSuppliers(created.id);
-      await flush();
-
+      // NO precargamos empleados/proveedores si no está activo
       return created;
     } catch (e: any) {
       setState({ loading: false, error: e?.message ?? "Error" });
@@ -324,7 +298,10 @@ export const businessActions = {
     setState({ loading: true, error: null });
 
     const remaining = getState().businesses.filter((b) => b.id !== id);
-    const nextActive = remaining[0]?.id ?? null;
+
+    // ✅ Si borras el activo, se queda sin activo (null)
+    const nextActive =
+      getState().activeBusinessId === id ? null : getState().activeBusinessId;
 
     setState({
       businesses: remaining,
@@ -340,12 +317,6 @@ export const businessActions = {
       await businessService.deleteBusiness(id);
     } catch {
       // demo
-    }
-
-    if (nextActive) {
-      await this.loadEmployees(nextActive);
-      await this.loadSuppliers(nextActive);
-      await flush();
     }
   },
 
@@ -481,7 +452,6 @@ export const businessActions = {
   },
 };
 
-// Hook selector
 export function useBusinessStore<T>(selector: (s: State) => T): T {
   const snap = useSyncExternalStore(
     (cb) => {

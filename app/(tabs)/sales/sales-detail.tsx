@@ -2,13 +2,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo } from "react";
-import { Text, View } from "react-native";
+import { Image, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
 
 import { useBusinessStore } from "@/src/store/businessStore";
+import { useInventoryStore } from "@/src/store/inventoryStore";
 import { useSalesStore } from "@/src/store/salesStore";
 import type { CartItem, Sale } from "@/src/types/sales";
 
@@ -24,6 +25,11 @@ function normalizeParamId(id: string | string[] | undefined): string {
 function safeDate(input: unknown): Date | null {
   const d = input instanceof Date ? input : new Date(String(input ?? ""));
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function safeUri(u: unknown): string | null {
+  const s = typeof u === "string" ? u.trim() : "";
+  return s ? s : null;
 }
 
 export default function SalesDetail() {
@@ -44,6 +50,16 @@ export default function SalesDetail() {
       []) as Sale[];
     return list.find((x) => String(x.id) === String(id)) ?? null;
   });
+
+  // ✅ resolver imágenes por productId (sale.items no tiene imageUri)
+  const allProducts = useInventoryStore((s) => s.products ?? []);
+  const productById = useMemo(() => {
+    const map = new Map<string, { imageUri?: string | null }>();
+    for (const p of allProducts as any[]) {
+      map.set(String(p.id), { imageUri: (p as any).imageUri ?? null });
+    }
+    return map;
+  }, [allProducts]);
 
   const methodLabel = useMemo(() => {
     const m = sale?.paymentMethod;
@@ -180,6 +196,9 @@ export default function SalesDetail() {
               const price = Number(l.price ?? 0);
               const lineTotal = round2(qty * price);
 
+              const prd = productById.get(String(l.productId));
+              const imageUri = safeUri(prd?.imageUri);
+
               return (
                 <View
                   key={`${sale.id}-${idx}`}
@@ -191,22 +210,64 @@ export default function SalesDetail() {
                     padding: 12,
                   }}
                 >
-                  <Text style={{ color: colors.text, fontWeight: "900" }}>
-                    {name}
-                    <Text style={{ color: colors.accent, fontWeight: "900" }}>
-                      {" "}
-                      · {qty} {unit || ""}
-                    </Text>
-                  </Text>
-
-                  <Text
-                    style={{ color: colors.muted, marginTop: 4, fontSize: 12 }}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
                   >
-                    {qty} × ${price.toFixed(2)} ={" "}
-                    <Text style={{ color: colors.text, fontWeight: "900" }}>
-                      ${lineTotal.toFixed(2)}
-                    </Text>
-                  </Text>
+                    <View
+                      style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.card2,
+                        overflow: "hidden",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {imageUri ? (
+                        <Image
+                          source={{ uri: imageUri }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 10 }}>
+                          Sin foto
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: "900" }}>
+                        {name}
+                        <Text
+                          style={{ color: colors.accent, fontWeight: "900" }}
+                        >
+                          {" "}
+                          · {qty} {unit || ""}
+                        </Text>
+                      </Text>
+
+                      <Text
+                        style={{
+                          color: colors.muted,
+                          marginTop: 4,
+                          fontSize: 12,
+                        }}
+                      >
+                        {qty} × ${price.toFixed(2)} ={" "}
+                        <Text style={{ color: colors.text, fontWeight: "900" }}>
+                          ${lineTotal.toFixed(2)}
+                        </Text>
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               );
             })

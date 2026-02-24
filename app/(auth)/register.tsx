@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import { authActions } from "@/src/store/authStore";
+import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore"; // ✅ ADD
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthCard from "@/src/ui/AuthCard";
@@ -19,12 +20,10 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  // ✅ Solo lo necesario
   const [name, setName] = useState("");
-  const [last, setLast] = useState("");
-  const [user, setUser] = useState("");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
-  const [dob, setDob] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -32,10 +31,8 @@ export default function RegisterScreen() {
 
   const fullName = useMemo(() => {
     const n = name.trim();
-    const l = last.trim();
-    const out = `${n} ${l}`.trim();
-    return out || undefined;
-  }, [name, last]);
+    return n || undefined;
+  }, [name]);
 
   const onSubmit = async () => {
     setErrorMsg(null);
@@ -44,9 +41,7 @@ export default function RegisterScreen() {
     const e = email.trim();
     const p = pass;
 
-    if (!name.trim() || !last.trim())
-      return setErrorMsg("Escribe tu nombre y apellidos.");
-    if (!user.trim()) return setErrorMsg("Escribe un nombre de usuario.");
+    if (!name.trim()) return setErrorMsg("Escribe tu nombre.");
     if (!e || !p) return setErrorMsg("Completa correo y contraseña.");
     if (!isValidEmail(e))
       return setErrorMsg("Escribe un correo válido (ej: correo@ejemplo.com).");
@@ -55,6 +50,9 @@ export default function RegisterScreen() {
 
     try {
       setLoading(true);
+
+      // ✅ Limpia widgets (por consistencia)
+      useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 
       await authActions.register(e, p, fullName);
       await authActions.logout();
@@ -91,27 +89,6 @@ export default function RegisterScreen() {
           placeholder="Tu nombre"
           autoCapitalize="words"
         />
-        <AppInput
-          label="Apellidos"
-          value={last}
-          onChangeText={setLast}
-          placeholder="Tus apellidos"
-          autoCapitalize="words"
-        />
-        <AppInput
-          label="Nombre de usuario"
-          value={user}
-          onChangeText={setUser}
-          placeholder="tu_usuario"
-          autoCapitalize="none"
-        />
-
-        <Text style={{ color: colors.muted, marginTop: 8, fontSize: 11 }}>
-          Se guardará como:{" "}
-          <Text style={{ fontWeight: "900", color: "#93c5fd" }}>
-            {user || "tu_usuario"}
-          </Text>
-        </Text>
 
         <AppInput
           label="Correo"
@@ -121,19 +98,13 @@ export default function RegisterScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
         />
+
         <AppInput
           label="Contraseña"
           value={pass}
           onChangeText={setPass}
           placeholder="Mínimo 6 caracteres"
           secureTextEntry
-        />
-        <AppInput
-          label="Fecha de nacimiento"
-          value={dob}
-          onChangeText={setDob}
-          placeholder="dd/mm/aaaa"
-          keyboardType="default"
         />
 
         {errorMsg ? (
@@ -174,7 +145,7 @@ export default function RegisterScreen() {
             <Text style={{ color: colors.text }}>
               ¿Olvidaste tu cuenta?{" "}
               <Text style={{ fontWeight: "900", color: "#93c5fd" }}>
-                Recupérala aquí
+                Recúpérala aquí
               </Text>
             </Text>
           </Pressable>

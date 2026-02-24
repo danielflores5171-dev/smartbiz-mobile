@@ -8,6 +8,7 @@ import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
 
 import { authActions } from "@/src/store/authStore";
+import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore"; // ✅ ADD
 import { notificationActions } from "@/src/store/notificationStore";
 import { profileActions } from "@/src/store/profileStore";
 
@@ -28,6 +29,9 @@ export default function LogoutScreen() {
         onPress: async () => {
           try {
             setLoading(true);
+
+            // ✅ Limpia widgets (para que no se “pegue” al cambiar usuario)
+            useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 
             notificationActions.clearLocal?.();
             profileActions.resetLocal?.();

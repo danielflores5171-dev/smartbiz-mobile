@@ -2,13 +2,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Image, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
 
 import { useBusinessStore } from "@/src/store/businessStore";
+import { useInventoryStore } from "@/src/store/inventoryStore";
 import { salesActions, useSalesStore } from "@/src/store/salesStore";
 import type { ID } from "@/src/types/business";
 import type { Sale } from "@/src/types/sales";
@@ -28,6 +29,14 @@ export default function SalesHistory() {
     if (!activeBusinessId) return [] as Sale[];
     return (s.salesByBusiness?.[String(activeBusinessId)] ?? []) as Sale[];
   });
+
+  // ✅ para sacar miniatura (primer producto de la venta)
+  const allProducts = useInventoryStore((s) => s.products ?? []);
+  const productById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const p of allProducts) map.set(String(p.id), p);
+    return map;
+  }, [allProducts]);
 
   const sorted = useMemo(() => {
     return [...sales].sort((a, b) => {
@@ -101,6 +110,15 @@ export default function SalesHistory() {
               const created = safeDate(s.createdAt);
               const total = Number(s.total ?? 0);
 
+              const firstItem = (s.items?.[0] as any) ?? null;
+              const firstProductId = firstItem?.productId
+                ? String(firstItem.productId)
+                : "";
+              const prd = firstProductId
+                ? productById.get(firstProductId)
+                : null;
+              const imageUri = prd?.imageUri ? String(prd.imageUri) : null;
+
               return (
                 <View
                   key={String(s.id)}
@@ -119,6 +137,33 @@ export default function SalesHistory() {
                       gap: 10,
                     }}
                   >
+                    {/* ✅ Miniatura preview */}
+                    <View
+                      style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.card2,
+                        overflow: "hidden",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {imageUri ? (
+                        <Image
+                          source={{ uri: imageUri }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 10 }}>
+                          —
+                        </Text>
+                      )}
+                    </View>
+
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontWeight: "900" }}>
                         Venta{" "}
@@ -191,7 +236,7 @@ export default function SalesHistory() {
                     <Pressable
                       onPress={() =>
                         router.push({
-                          pathname: "/sales/receipt",
+                          pathname: "/sales/sales-detail", // ✅ FIX (antes /sales/receipt)
                           params: { id: s.id },
                         } as any)
                       }
@@ -234,7 +279,7 @@ export default function SalesHistory() {
                               text: "Abrir ticket",
                               onPress: () =>
                                 router.push({
-                                  pathname: "/sales/receipt",
+                                  pathname: "/sales/sales-detail", // ✅ FIX
                                   params: { id: s.id },
                                 } as any),
                             },

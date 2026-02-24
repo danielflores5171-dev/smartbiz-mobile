@@ -40,9 +40,7 @@ function requireUserId() {
   return uid;
 }
 
-// ✅ payload flexible (para que tu inventoryStore actual compile)
-// - puedes usar { type, title, message, businessId, meta }
-// - o usar { kind, title, body, meta }
+// ✅ payload flexible (para inventoryStore / legacy)
 type AddInput =
   | {
       kind: NotificationKind;
@@ -64,17 +62,22 @@ function mapTypeToKind(type: string): NotificationKind {
   if (t.includes("sale")) return "sales";
   if (t.includes("business")) return "business";
   if (t.includes("system")) return "system";
-  // defaults inteligentes:
   if (t === "low_stock" || t === "inventory_move") return "inventory";
   return "system";
 }
 
 export const notificationActions = {
-  // ⚠️ IMPORTANTE: pásale userId desde tabs layout cuando hay sesión
+  // ⚠️ pásale userId desde tabs layout cuando hay sesión
   async bootstrap(userId: string) {
     if (getState().hydrated && getState().userId === userId) return;
 
-    setState({ loading: true, error: null, hydrated: false, userId });
+    setState({
+      loading: true,
+      error: null,
+      hydrated: false,
+      userId,
+      items: [],
+    });
 
     try {
       const items = await notificationService.list(userId);
@@ -102,11 +105,9 @@ export const notificationActions = {
     }
   },
 
-  // ✅ NUEVO: agregar notificación (para inventory/sales/etc)
   async add(input: AddInput) {
     const userId = requireUserId();
 
-    // normaliza a {kind,title,body,meta}
     const normalized: {
       kind: NotificationKind;
       title: string;
@@ -125,9 +126,7 @@ export const notificationActions = {
             title: input.title,
             body: input.message,
             meta: {
-              // si mandan meta, lo metemos como payload (no rompe)
               payload: { businessId: input.businessId, ...(input.meta ?? {}) },
-              // ruta sugerida por tipo
               route:
                 mapTypeToKind(input.type) === "inventory"
                   ? "/(tabs)/inventory"
@@ -137,7 +136,6 @@ export const notificationActions = {
             },
           };
 
-    // optimista local
     const optimistic: NotificationItem = {
       id: `ntf-local-${Math.random().toString(36).slice(2, 9)}`,
       createdAt: new Date().toISOString(),
@@ -160,7 +158,6 @@ export const notificationActions = {
       });
       setState({ items: next, error: null });
     } catch (e: any) {
-      // si falla, no tronamos: dejamos la optimista y avisamos
       setState({ error: e?.message ?? "No se pudo agregar notificación." });
     }
   },
@@ -217,7 +214,8 @@ export const notificationActions = {
     }
   },
 
-  clearLocal() {
+  // ✅ nombre consistente con otros stores (para authStore)
+  clearLocalMemoryOnly() {
     setState({
       items: [],
       hydrated: false,
@@ -225,6 +223,11 @@ export const notificationActions = {
       error: null,
       userId: null,
     });
+  },
+
+  // compat (por si hay código viejo)
+  clearLocal() {
+    this.clearLocalMemoryOnly();
   },
 };
 

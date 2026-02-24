@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import { authActions } from "@/src/store/authStore";
+import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore"; // ✅ ADD
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
@@ -45,6 +46,10 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
+
+      // ✅ Limpia widgets (por si venías de otro usuario / demo)
+      useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
+
       await authActions.login(e, p);
       router.replace("/(tabs)/dashboard" as any);
     } catch (err: any) {
@@ -132,7 +137,7 @@ export default function LoginScreen() {
             <Text style={{ color: colors.text }}>
               ¿Olvidaste tu cuenta?{" "}
               <Text style={{ fontWeight: "900", color: "#60a5fa" }}>
-                Recupérala aquí
+                Recúpérala aquí
               </Text>
             </Text>
           </Pressable>

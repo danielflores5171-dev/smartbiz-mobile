@@ -18,15 +18,16 @@ export default function BusinessCreate() {
   const [address, setAddress] = useState("");
 
   async function onCreate() {
-    if (!name.trim()) return;
+    const cleanName = name.trim();
+    if (!cleanName) return;
 
     await businessActions.createBusiness({
-      name: name.trim(),
+      name: cleanName,
       legalName: legalName.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
       address: address.trim() || undefined,
-    } as any);
+    });
 
     router.back();
   }

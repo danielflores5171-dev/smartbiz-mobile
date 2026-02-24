@@ -1,7 +1,7 @@
 // app/(tabs)/inventory/create.tsx
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Image, ScrollView, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
@@ -12,6 +12,9 @@ import { useBusinessStore } from "@/src/store/businessStore";
 import { inventoryActions } from "@/src/store/inventoryStore";
 import type { Unit } from "@/src/types/inventory";
 
+import { productImageService } from "@/src/services/productImageService";
+import { useAuthStore } from "@/src/store/authStore";
+
 const UNITS: Unit[] = ["pz", "kg", "lt", "caja"];
 
 export default function InventoryCreate() {
@@ -19,6 +22,7 @@ export default function InventoryCreate() {
   const { colors } = useTheme();
 
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
+  const authUser = useAuthStore((s) => s.user);
 
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
@@ -28,6 +32,9 @@ export default function InventoryCreate() {
   const [cost, setCost] = useState("0");
   const [stock, setStock] = useState("0");
   const [minStock, setMinStock] = useState("");
+
+  // ✅ imagen temporal antes de crear (porque aún no hay productId)
+  const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   const can = useMemo(
     () => name.trim().length >= 2 && !!activeBusinessId,
@@ -49,6 +56,11 @@ export default function InventoryCreate() {
       </Screen>
     );
   }
+
+  const pickImage = async () => {
+    const uri = await productImageService.pickFromLibrary();
+    if (uri) setTempImageUri(uri);
+  };
 
   return (
     <Screen padded>
@@ -91,6 +103,61 @@ export default function InventoryCreate() {
               variant="secondary"
               fullWidth={false}
             />
+          </View>
+
+          {/* ✅ Imagen */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 12 }}>
+            Imagen (opcional)
+          </Text>
+
+          <View
+            style={{
+              marginTop: 8,
+              flexDirection: "row",
+              gap: 10,
+              alignItems: "center",
+            }}
+          >
+            <View
+              style={{
+                width: 74,
+                height: 74,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card2,
+                overflow: "hidden",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {tempImageUri ? (
+                <Image
+                  source={{ uri: tempImageUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Sin foto
+                </Text>
+              )}
+            </View>
+
+            <View style={{ flex: 1, gap: 10 }}>
+              <AppButton
+                title={tempImageUri ? "CAMBIAR IMAGEN" : "AGREGAR IMAGEN"}
+                onPress={pickImage}
+                variant="secondary"
+              />
+              {tempImageUri ? (
+                <AppButton
+                  title="QUITAR"
+                  onPress={() => setTempImageUri(null)}
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
           </View>
 
           <AppInput
@@ -181,7 +248,7 @@ export default function InventoryCreate() {
               onPress={async () => {
                 if (!can) return;
 
-                await inventoryActions.createProduct({
+                const created = await inventoryActions.createProduct({
                   businessId: activeBusinessId,
                   name: name.trim(),
                   sku: sku.trim() || undefined,
@@ -192,7 +259,26 @@ export default function InventoryCreate() {
                   stock: Number(stock) || 0,
                   minStock: minStock.trim() ? Number(minStock) || 0 : undefined,
                   status: "active",
+                  // ✅ imageUri se setea después de tener productId
                 });
+
+                // ✅ Si eligieron imagen, la guardamos en ruta estable y actualizamos producto
+                if (tempImageUri && authUser?.id) {
+                  try {
+                    const stableUri = await productImageService.saveForProduct({
+                      userId: authUser.id,
+                      productId: String(created.id),
+                      pickedUri: tempImageUri,
+                    });
+
+                    await inventoryActions.updateProduct(created.id, {
+                      imageUri: stableUri,
+                    });
+                  } catch (e) {
+                    console.warn("No se pudo guardar imagen:", e);
+                    // no tronamos el flujo
+                  }
+                }
 
                 router.replace("/inventory" as any);
               }}

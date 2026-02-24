@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Image, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
@@ -10,19 +10,8 @@ import AppInput from "@/src/ui/AppInput";
 import Screen from "@/src/ui/Screen";
 
 import { useBusinessStore } from "@/src/store/businessStore";
+import { useInventoryStore } from "@/src/store/inventoryStore";
 import { salesActions, useSalesStore } from "@/src/store/salesStore";
-import type { PaymentMethod } from "@/src/types/sales";
-
-const METHODS: { label: string; value: PaymentMethod; icon: any }[] = [
-  { label: "Efectivo", value: "cash", icon: "cash-outline" },
-  { label: "Tarjeta", value: "card", icon: "card-outline" },
-  {
-    label: "Transferencia",
-    value: "transfer",
-    icon: "swap-horizontal-outline",
-  },
-  { label: "Otro", value: "other", icon: "ellipsis-horizontal" },
-];
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -41,7 +30,17 @@ export default function CheckoutScreen() {
   const cart = useSalesStore((s) => s.cart ?? []);
   const discount = useSalesStore((s) => s.discount ?? 0);
 
-  const [method, setMethod] = useState<PaymentMethod>("cash");
+  // ✅ para miniaturas por productId
+  const allProducts = useInventoryStore((s) => s.products ?? []);
+  const productById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const p of allProducts) map.set(String(p.id), p);
+    return map;
+  }, [allProducts]);
+
+  // ✅ SOLO EFECTIVO
+  const method = "cash" as const;
+
   const [paidStr, setPaidStr] = useState("");
   const [note, setNote] = useState("");
 
@@ -72,11 +71,7 @@ export default function CheckoutScreen() {
 
   const paidCash = useMemo(() => parseMoney(paidStr), [paidStr]);
 
-  const paid = useMemo(
-    () => (method === "cash" ? paidCash : total),
-    [method, paidCash, total],
-  );
-
+  const paid = paidCash; // siempre cash
   const change = useMemo(
     () => round2(Math.max(0, paid - total)),
     [paid, total],
@@ -85,9 +80,8 @@ export default function CheckoutScreen() {
   const canPay = useMemo(() => {
     if (cart.length === 0) return false;
     if (total <= 0) return false;
-    if (method === "cash") return paidCash >= total;
-    return true;
-  }, [cart.length, method, paidCash, total]);
+    return paidCash >= total;
+  }, [cart.length, paidCash, total]);
 
   if (!activeBusinessId) {
     return (
@@ -160,6 +154,93 @@ export default function CheckoutScreen() {
           }}
         />
 
+        {/* ✅ RESUMEN DEL CARRITO CON MINIATURAS */}
+        <Text style={{ color: colors.text, fontWeight: "900" }}>
+          Productos ({cart.length})
+        </Text>
+
+        <View style={{ marginTop: 10, gap: 10 }}>
+          {cart.map((it) => {
+            const prd = productById.get(String(it.productId));
+            const imageUri = prd?.imageUri ? String(prd.imageUri) : null;
+
+            return (
+              <View
+                key={String(it.productId)}
+                style={{
+                  backgroundColor: colors.pillBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 16,
+                  padding: 12,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.card2,
+                      overflow: "hidden",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {imageUri ? (
+                      <Image
+                        source={{ uri: imageUri }}
+                        style={{ width: "100%", height: "100%" }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 10 }}>
+                        Sin foto
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: "900" }}>
+                      {it.name}{" "}
+                      <Text style={{ color: colors.accent, fontWeight: "900" }}>
+                        · {Number(it.qty) || 0}{" "}
+                        {String(it.unit ?? "").toUpperCase()}
+                      </Text>
+                    </Text>
+                    <Text
+                      style={{
+                        color: colors.muted,
+                        marginTop: 4,
+                        fontSize: 12,
+                      }}
+                    >
+                      ${(Number(it.price) || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.divider,
+            marginVertical: 16,
+          }}
+        />
+
+        {/* ✅ SOLO EFECTIVO (sin opciones) */}
         <Text style={{ color: colors.text, fontWeight: "900" }}>
           Método de pago
         </Text>
@@ -172,53 +253,36 @@ export default function CheckoutScreen() {
             marginTop: 10,
           }}
         >
-          {METHODS.map((m) => {
-            const active = method === m.value;
-            return (
-              <Pressable
-                key={m.value}
-                onPress={() => setMethod(m.value)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: active
-                    ? colors.inputBorderEmphasis
-                    : colors.border,
-                  backgroundColor: active ? colors.pillBgActive : colors.pillBg,
-                }}
-              >
-                <Ionicons
-                  name={m.icon}
-                  size={16}
-                  color={active ? colors.accent : colors.muted}
-                />
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontWeight: "900",
-                    fontSize: 12,
-                  }}
-                >
-                  {m.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.inputBorderEmphasis,
+              backgroundColor: colors.pillBgActive,
+            }}
+          >
+            <Ionicons name="cash-outline" size={16} color={colors.accent} />
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 12 }}
+            >
+              Efectivo
+            </Text>
+          </View>
         </View>
 
         <AppInput
-          label={method === "cash" ? "Pagó (efectivo)" : "Pagó (auto)"}
-          value={method === "cash" ? paidStr : String(total)}
+          label="Pagó (efectivo)"
+          value={paidStr}
           onChangeText={(t: string) => setPaidStr(t)}
           keyboardType="number-pad"
           placeholder={String(total)}
-          editable={method === "cash"}
-          emphasis={method === "cash"}
+          editable
+          emphasis
         />
 
         <AppInput
@@ -267,14 +331,12 @@ export default function CheckoutScreen() {
           </Text>
         </Text>
 
-        {method === "cash" ? (
-          <Text style={{ color: colors.muted, marginTop: 6 }}>
-            Cambio:{" "}
-            <Text style={{ color: colors.text, fontWeight: "900" }}>
-              ${change.toFixed(2)}
-            </Text>
+        <Text style={{ color: colors.muted, marginTop: 6 }}>
+          Cambio:{" "}
+          <Text style={{ color: colors.text, fontWeight: "900" }}>
+            ${change.toFixed(2)}
           </Text>
-        ) : null}
+        </Text>
 
         <View style={{ marginTop: 16, gap: 10 }}>
           <AppButton
@@ -284,7 +346,7 @@ export default function CheckoutScreen() {
               try {
                 const sale = await salesActions.checkout({
                   businessId: activeBusinessId,
-                  paymentMethod: method,
+                  paymentMethod: method, // ✅ siempre cash
                   paid,
                   note: note.trim() || undefined,
                   taxRate: TAX_RATE,

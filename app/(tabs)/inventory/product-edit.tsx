@@ -1,7 +1,7 @@
 // app/(tabs)/inventory/product-edit.tsx
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Image, ScrollView, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
@@ -14,12 +14,16 @@ import {
 } from "@/src/store/inventoryStore";
 import type { Unit } from "@/src/types/inventory";
 
+import { productImageService } from "@/src/services/productImageService";
+import { useAuthStore } from "@/src/store/authStore";
+
 const UNITS: Unit[] = ["pz", "kg", "lt", "caja"];
 
 export default function ProductEdit() {
   const router = useRouter();
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const authUser = useAuthStore((s) => s.user);
 
   const product = useInventoryStore((s) =>
     (s.products ?? []).find((p) => p.id === id),
@@ -33,7 +37,9 @@ export default function ProductEdit() {
   const [cost, setCost] = useState("0");
   const [minStock, setMinStock] = useState("");
 
-  // ✅ re-sync cuando el producto llega/actualiza
+  // ✅ imagen actual
+  const [imageUri, setImageUri] = useState<string | null>(null);
+
   useEffect(() => {
     if (!product) return;
     setName(product.name ?? "");
@@ -43,6 +49,7 @@ export default function ProductEdit() {
     setPrice(String(product.price ?? 0));
     setCost(String(product.cost ?? 0));
     setMinStock(product.minStock != null ? String(product.minStock) : "");
+    setImageUri((product.imageUri as any) ?? null);
   }, [product?.id, product?.updatedAt]);
 
   const can = useMemo(
@@ -66,6 +73,33 @@ export default function ProductEdit() {
     );
   }
 
+  const pickAndAttach = async () => {
+    const picked = await productImageService.pickFromLibrary();
+    if (!picked) return;
+    if (!authUser?.id) return;
+
+    const stableUri = await productImageService.saveForProduct({
+      userId: authUser.id,
+      productId: String(product.id),
+      pickedUri: picked,
+    });
+
+    setImageUri(stableUri);
+    await inventoryActions.updateProduct(product.id, { imageUri: stableUri });
+  };
+
+  const removeImage = async () => {
+    if (!authUser?.id) return;
+
+    await productImageService.removeProductImage({
+      userId: authUser.id,
+      productId: String(product.id),
+    });
+
+    setImageUri(null);
+    await inventoryActions.updateProduct(product.id, { imageUri: undefined });
+  };
+
   return (
     <Screen padded>
       <ScrollView
@@ -87,6 +121,60 @@ export default function ProductEdit() {
           <Text style={{ color: colors.muted, marginTop: 6 }}>
             Cambia los datos del producto (demo).
           </Text>
+
+          {/* ✅ Imagen */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 12 }}>
+            Imagen (opcional)
+          </Text>
+
+          <View
+            style={{
+              marginTop: 8,
+              flexDirection: "row",
+              gap: 10,
+              alignItems: "center",
+            }}
+          >
+            <View
+              style={{
+                width: 74,
+                height: 74,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card2,
+                overflow: "hidden",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {imageUri ? (
+                <Image
+                  source={{ uri: imageUri }}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Sin foto
+                </Text>
+              )}
+            </View>
+
+            <View style={{ flex: 1, gap: 10 }}>
+              <AppButton
+                title={imageUri ? "CAMBIAR IMAGEN" : "AGREGAR IMAGEN"}
+                onPress={pickAndAttach}
+                variant="secondary"
+              />
+              {imageUri ? (
+                <AppButton
+                  title="QUITAR"
+                  onPress={removeImage}
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
+          </View>
 
           <AppInput
             label="Nombre"

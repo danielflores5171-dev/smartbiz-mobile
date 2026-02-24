@@ -9,7 +9,7 @@ import { Redirect, usePathname, useRouter } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import React, { useEffect } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context"; // ✅ ADD
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/context/theme-context";
 import { businessActions, useBusinessStore } from "@/src/store/businessStore";
@@ -26,6 +26,9 @@ import { authActions, useAuthStore } from "@/src/store/authStore";
 // ✅ SALES bootstrap por usuario
 import { salesActions } from "@/src/store/salesStore";
 
+// ✅ INVENTORY bootstrap por usuario
+import { inventoryActions } from "@/src/store/inventoryStore";
+
 type Item = {
   label: string;
   icon: React.ComponentProps<typeof Ionicons>["name"];
@@ -38,9 +41,8 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets(); // ✅ ADD
+  const insets = useSafeAreaInsets();
 
-  // ✅ IMPORTANTE: NO uses "/(tabs)" en href.
   const items: Item[] = [
     { label: "Dashboard", icon: "grid-outline", href: "/dashboard" },
     { label: "Negocio", icon: "business-outline", href: "/business" },
@@ -66,6 +68,7 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
 
   const rawPath = typeof pathname === "string" ? pathname : "";
 
+  // status solo si hay negocio
   const bizStatus = (activeBiz as any)?.status ?? "active";
   const isActiveBiz = bizStatus === "active";
   const statusDot = isActiveBiz ? "#22c55e" : "#ef4444";
@@ -76,7 +79,6 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
       <DrawerContentScrollView
         {...props}
         contentContainerStyle={{
-          // ✅ FIX: respeta notch/cámara/hora
           paddingTop: insets.top + 12,
           paddingHorizontal: 12,
           paddingBottom: Math.max(insets.bottom, 12),
@@ -119,54 +121,55 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
                 {userEmail}
               </Text>
 
-              {hasBiz ? (
-                <View
+              {/* ✅ Siempre mostrar sección de negocio (con o sin activo) */}
+              <View
+                style={{
+                  marginTop: 8,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <Pressable
+                  onPress={() => router.push("/business" as any)}
                   style={{
-                    marginTop: 8,
+                    flex: 1,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 14,
+                    backgroundColor: colors.card2,
+                    borderWidth: 1,
+                    borderColor: colors.border,
                     flexDirection: "row",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
+                    gap: 8,
                   }}
                 >
-                  <Pressable
-                    onPress={() => router.push("/business" as any)}
+                  <Ionicons
+                    name="business-outline"
+                    size={16}
+                    color={colors.icon}
+                  />
+                  <Text
                     style={{
+                      color: colors.text,
+                      fontWeight: "800",
+                      fontSize: 12,
                       flex: 1,
-                      paddingHorizontal: 10,
-                      paddingVertical: 8,
-                      borderRadius: 14,
-                      backgroundColor: colors.card2,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
                     }}
+                    numberOfLines={1}
                   >
-                    <Ionicons
-                      name="business-outline"
-                      size={16}
-                      color={colors.icon}
-                    />
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "800",
-                        fontSize: 12,
-                        flex: 1,
-                      }}
-                      numberOfLines={1}
-                    >
-                      {activeBiz?.name}
-                    </Text>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={14}
-                      color={colors.muted}
-                    />
-                  </Pressable>
+                    {hasBiz ? activeBiz?.name : "Selecciona negocio"}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={colors.muted}
+                  />
+                </Pressable>
 
+                {hasBiz ? (
                   <View
                     style={{
                       paddingHorizontal: 10,
@@ -198,8 +201,8 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
                       {statusText}
                     </Text>
                   </View>
-                </View>
-              ) : null}
+                ) : null}
+              </View>
             </View>
           </View>
         </View>
@@ -251,14 +254,13 @@ function SmartBizDrawerContent(props: DrawerContentComponentProps) {
         <View style={{ height: 18 }} />
       </DrawerContentScrollView>
 
-      {/* Footer fijo */}
       <View
         style={{
           paddingHorizontal: 16,
           paddingVertical: 12,
           borderTopWidth: 1,
           borderTopColor: colors.divider,
-          paddingBottom: Math.max(insets.bottom, 12), // ✅ opcional: se ve más pro
+          paddingBottom: Math.max(insets.bottom, 12),
         }}
       >
         <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -277,6 +279,9 @@ export default function TabsLayout() {
   const token = useAuthStore((s) => s.token);
   const authUser = useAuthStore((s) => s.user);
 
+  const bizHydrated = useBusinessStore((s) => s.hydrated);
+  const bizUserId = useBusinessStore((s) => s.userId);
+
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
   );
@@ -291,17 +296,22 @@ export default function TabsLayout() {
 
   useEffect(() => {
     if (!hydrated || !token) return;
+    if (!authUser?.id) return;
 
-    if (authUser?.id) void businessActions.bootstrap(authUser.id);
-    void useDashboardWidgetsStore.getState().hydrate();
-
-    if (authUser) void profileActions.bootstrapForAuthUser(authUser);
-
-    if (authUser?.id) {
-      void notificationActions.bootstrap(authUser.id);
-      void salesActions.bootstrap(authUser.id);
+    // ✅ negocios por usuario (solo si hace falta o cambió usuario)
+    if (!bizHydrated || bizUserId !== authUser.id) {
+      void businessActions.bootstrap(authUser.id);
     }
-  }, [hydrated, token, authUser?.id]);
+
+    // ✅ inventario por usuario
+    void inventoryActions.bootstrap(authUser.id);
+
+    void useDashboardWidgetsStore.getState().hydrate(authUser.id);
+    void profileActions.bootstrapForAuthUser(authUser);
+
+    void notificationActions.bootstrap(authUser.id);
+    void salesActions.bootstrap(authUser.id);
+  }, [hydrated, token, authUser?.id, bizHydrated, bizUserId]);
 
   if (!hydrated) {
     return (
@@ -324,8 +334,10 @@ export default function TabsLayout() {
 
   if (!token) return <Redirect href="/(auth)/login" />;
 
-  const activeBusinessName = activeBiz?.name ?? "";
   const hasBiz = !!activeBiz;
+  const activeBusinessName = hasBiz
+    ? (activeBiz?.name ?? "")
+    : "Selecciona negocio";
 
   return (
     <Drawer
@@ -358,35 +370,35 @@ export default function TabsLayout() {
               paddingRight: 12,
             }}
           >
-            {hasBiz ? (
-              <Pressable
-                onPress={() => router.push("/business" as any)}
+            {/* ✅ Siempre mostrar chip (con o sin negocio activo) */}
+            <Pressable
+              onPress={() => router.push("/business" as any)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                maxWidth: 180,
+                opacity: hasBiz ? 1 : 0.85,
+              }}
+            >
+              <Text
                 style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: colors.card,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  maxWidth: 160,
+                  color: colors.text,
+                  fontSize: 12,
+                  fontWeight: "800",
                 }}
+                numberOfLines={1}
               >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 12,
-                    fontWeight: "800",
-                  }}
-                  numberOfLines={1}
-                >
-                  {activeBusinessName}
-                </Text>
-                <Ionicons name="chevron-down" size={14} color={colors.text} />
-              </Pressable>
-            ) : null}
+                {activeBusinessName}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={colors.text} />
+            </Pressable>
 
             <Pressable
               onPress={() => router.push("/notifications" as any)}

@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Image, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
@@ -10,6 +10,7 @@ import AppInput from "@/src/ui/AppInput";
 import Screen from "@/src/ui/Screen";
 
 import { useBusinessStore } from "@/src/store/businessStore";
+import { useInventoryStore } from "@/src/store/inventoryStore";
 import { salesActions, useSalesStore } from "@/src/store/salesStore";
 
 function parseMoney(input: string) {
@@ -21,6 +22,11 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+function safeUri(u: unknown): string | null {
+  const s = typeof u === "string" ? u.trim() : "";
+  return s ? s : null;
+}
+
 export default function CartScreen() {
   const router = useRouter();
   const { colors, isDark } = useTheme();
@@ -29,7 +35,22 @@ export default function CartScreen() {
   const cart = useSalesStore((s) => s.cart ?? []);
   const discount = useSalesStore((s) => s.discount ?? 0);
 
+  // ✅ inventario para resolver imageUri por productId
+  const allProducts = useInventoryStore((s) => s.products ?? []);
+
   const [discountStr, setDiscountStr] = useState(String(discount || 0));
+
+  // ✅ index rápido: productId -> imageUri (solo del negocio activo)
+  const imageByProductId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    if (!activeBusinessId) return map;
+
+    for (const p of allProducts as any[]) {
+      if (String(p.businessId) !== String(activeBusinessId)) continue;
+      map.set(String(p.id), safeUri(p.imageUri));
+    }
+    return map;
+  }, [allProducts, activeBusinessId]);
 
   const subtotal = useMemo(
     () =>
@@ -118,125 +139,159 @@ export default function CartScreen() {
         ) : (
           <>
             <View style={{ gap: 10 }}>
-              {cart.map((it) => (
-                <View
-                  key={String(it.productId)}
-                  style={{
-                    backgroundColor: colors.pillBg,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 16,
-                    padding: 14,
-                  }}
-                >
+              {cart.map((it) => {
+                const thumb =
+                  imageByProductId.get(String(it.productId)) ?? null;
+
+                return (
                   <View
+                    key={String(it.productId)}
                     style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
+                      backgroundColor: colors.pillBg,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 16,
+                      padding: 14,
                     }}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text, fontWeight: "900" }}>
-                        {it.name}{" "}
-                        <Text
-                          style={{ color: colors.accent, fontWeight: "900" }}
-                        >
-                          · {String(it.unit ?? "").toUpperCase()}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      {/* ✅ Miniatura */}
+                      <View
+                        style={{
+                          width: 54,
+                          height: 54,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: colors.card2,
+                          overflow: "hidden",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {thumb ? (
+                          <Image
+                            source={{ uri: thumb }}
+                            style={{ width: "100%", height: "100%" }}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <Text style={{ color: colors.muted, fontSize: 10 }}>
+                            Sin foto
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: "900" }}>
+                          {it.name}{" "}
+                          <Text
+                            style={{ color: colors.accent, fontWeight: "900" }}
+                          >
+                            · {String(it.unit ?? "").toUpperCase()}
+                          </Text>
                         </Text>
-                      </Text>
-                      <Text
+                        <Text
+                          style={{
+                            color: colors.muted,
+                            marginTop: 4,
+                            fontSize: 12,
+                          }}
+                        >
+                          ${(Number(it.price) || 0).toFixed(2)}
+                        </Text>
+                      </View>
+
+                      <Pressable
+                        onPress={() =>
+                          salesActions.removeFromCart(it.productId as any)
+                        }
                         style={{
-                          color: colors.muted,
-                          marginTop: 4,
-                          fontSize: 12,
+                          width: 38,
+                          height: 38,
+                          borderRadius: 14,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: 1,
+                          borderColor: colors.dangerBorder,
+                          backgroundColor: colors.dangerBg,
                         }}
                       >
-                        ${(Number(it.price) || 0).toFixed(2)}
-                      </Text>
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color={colors.dangerText}
+                        />
+                      </Pressable>
                     </View>
 
-                    <Pressable
-                      onPress={() =>
-                        salesActions.removeFromCart(it.productId as any)
-                      }
+                    <View
                       style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 14,
+                        flexDirection: "row",
                         alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 1,
-                        borderColor: colors.dangerBorder,
-                        backgroundColor: colors.dangerBg,
+                        gap: 10,
+                        marginTop: 12,
                       }}
                     >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color={colors.dangerText}
-                      />
-                    </Pressable>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      marginTop: 12,
-                    }}
-                  >
-                    <Pressable
-                      onPress={() => salesActions.dec(it.productId as any)}
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 14,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        backgroundColor: isDark ? colors.card2 : colors.pillBg,
-                      }}
-                    >
-                      <Ionicons name="remove" size={20} color={colors.text} />
-                    </Pressable>
-
-                    <View style={{ flex: 1, alignItems: "center" }}>
-                      <Text
+                      <Pressable
+                        onPress={() => salesActions.dec(it.productId as any)}
                         style={{
-                          color: colors.text,
-                          fontWeight: "900",
-                          fontSize: 16,
+                          width: 44,
+                          height: 44,
+                          borderRadius: 14,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: isDark
+                            ? colors.card2
+                            : colors.pillBg,
                         }}
                       >
-                        {Number(it.qty) || 0}{" "}
-                        {String(it.unit ?? "").toUpperCase()}
-                      </Text>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>
-                        Cantidad
-                      </Text>
-                    </View>
+                        <Ionicons name="remove" size={20} color={colors.text} />
+                      </Pressable>
 
-                    <Pressable
-                      onPress={() => salesActions.inc(it.productId as any)}
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 14,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        backgroundColor: colors.accentSoft,
-                      }}
-                    >
-                      <Ionicons name="add" size={20} color={colors.accent} />
-                    </Pressable>
+                      <View style={{ flex: 1, alignItems: "center" }}>
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontWeight: "900",
+                            fontSize: 16,
+                          }}
+                        >
+                          {Number(it.qty) || 0}{" "}
+                          {String(it.unit ?? "").toUpperCase()}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          Cantidad
+                        </Text>
+                      </View>
+
+                      <Pressable
+                        onPress={() => salesActions.inc(it.productId as any)}
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 14,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: colors.accentSoft,
+                        }}
+                      >
+                        <Ionicons name="add" size={20} color={colors.accent} />
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
 
             <View
