@@ -1,5 +1,6 @@
 // src/services/authService.ts
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ENV } from "@/src/lib/env";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export type AuthUser = {
   id: string;
@@ -8,153 +9,195 @@ export type AuthUser = {
 };
 
 export type AuthSession = {
-  token: string;
+  token: string; // ✅ Supabase access_token (JWT)
   user: AuthUser;
 };
 
-type StoredUser = AuthUser & {
-  password: string; // demo
-};
+// ------------------------
+// Supabase client (singleton)
+// ------------------------
+let _supabase: SupabaseClient | null = null;
 
-const USERS_KEY = "smartbiz.users";
-const RESET_KEY = "smartbiz.resetCodes";
+function getSupabase(): SupabaseClient {
+  if (_supabase) return _supabase;
 
-// ✅ CAMBIA ESTO A false cuando conectes backend real
-const DEMO_SHOW_RESET_CODE = true;
+  const url = String(ENV.SUPABASE_URL ?? "").trim();
+  const anon = String(ENV.SUPABASE_ANON_KEY ?? "").trim();
 
-// helpers
-function uid() {
-  return Math.random().toString(16).slice(2) + Date.now().toString(16);
+  if (!url || !anon) {
+    throw new Error(
+      "Faltan variables de Supabase. Revisa EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY en tu .env y reinicia Expo con -c.",
+    );
+  }
+
+  _supabase = createClient(url, anon, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+    },
+  });
+
+  return _supabase;
 }
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
-function genCode6() {
-  return String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+
+function extractFullName(user: any): string | undefined {
+  const md = user?.user_metadata ?? {};
+  return (
+    (typeof md.full_name === "string" && md.full_name.trim()) ||
+    (typeof md.name === "string" && md.name.trim()) ||
+    undefined
+  );
 }
 
-async function readUsers(): Promise<StoredUser[]> {
-  const raw = await AsyncStorage.getItem(USERS_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as StoredUser[];
-  } catch {
-    return [];
-  }
-}
-async function writeUsers(users: StoredUser[]) {
-  await AsyncStorage.setItem(USERS_KEY, JSON.stringify(users));
+function toAuthUser(user: any): AuthUser {
+  return {
+    id: String(user.id),
+    email: String(user.email ?? ""),
+    fullName: extractFullName(user),
+  };
 }
 
-type ResetRecord = { code: string; expiresAt: number };
-async function readResetMap(): Promise<Record<string, ResetRecord>> {
-  const raw = await AsyncStorage.getItem(RESET_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, ResetRecord>;
-  } catch {
-    return {};
-  }
-}
-async function writeResetMap(map: Record<string, ResetRecord>) {
-  await AsyncStorage.setItem(RESET_KEY, JSON.stringify(map));
+function mapSupabaseError(e: any): string {
+  const msg = String(e?.message ?? e ?? "Error");
+
+  const lower = msg.toLowerCase();
+  if (lower.includes("invalid login credentials"))
+    return "Credenciales inválidas.";
+  if (lower.includes("email not confirmed") || lower.includes("not confirmed"))
+    return "Debes confirmar tu correo antes de iniciar sesión.";
+  if (lower.includes("already registered") || lower.includes("already exists"))
+    return "Ese correo ya está registrado.";
+  if (lower.includes("too many") || lower.includes("rate limit"))
+    return "Demasiados intentos. Intenta de nuevo en unos minutos.";
+
+  return msg;
 }
 
 export const authService = {
+  /**
+   * ✅ Registro real en Supabase
+   * Guarda fullName en user_metadata.full_name
+   */
   async register(
     email: string,
     password: string,
     fullName?: string,
   ): Promise<AuthSession> {
+    const supabase = getSupabase();
     const e = normalizeEmail(email);
-    const users = await readUsers();
 
-    const exists = users.some((u) => u.email === e);
-    if (exists) {
-      throw new Error("Ese correo ya está registrado.");
-    }
-
-    const user: StoredUser = {
-      id: uid(),
+    const { data, error } = await supabase.auth.signUp({
       email: e,
-      fullName,
       password,
-    };
+      options: {
+        data: {
+          full_name: fullName?.trim() || undefined,
+        },
+      },
+    });
 
-    users.push(user);
-    await writeUsers(users);
+    if (error) throw new Error(mapSupabaseError(error));
 
-    return {
-      token: "demo-" + uid(),
-      user: { id: user.id, email: user.email, fullName: user.fullName },
-    };
-  },
+    // Puede que session venga null si Supabase requiere confirmación por correo
+    const session = data.session;
+    const user = data.user;
 
-  async login(email: string, password: string): Promise<AuthSession> {
-    const e = normalizeEmail(email);
-    const users = await readUsers();
-    const u = users.find((x) => x.email === e);
+    if (!user) throw new Error("No se pudo crear el usuario.");
 
-    if (!u || u.password !== password) {
-      throw new Error("Credenciales inválidas.");
+    if (!session?.access_token) {
+      // Si requiere confirmación, no hay token todavía
+      throw new Error(
+        "Registro exitoso. Confirma tu correo para iniciar sesión.",
+      );
     }
 
     return {
-      token: "demo-" + uid(),
-      user: { id: u.id, email: u.email, fullName: u.fullName },
+      token: session.access_token,
+      user: toAuthUser(user),
     };
   },
 
+  /**
+   * ✅ Login real en Supabase
+   */
+  async login(email: string, password: string): Promise<AuthSession> {
+    const supabase = getSupabase();
+    const e = normalizeEmail(email);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: e,
+      password,
+    });
+
+    if (error) throw new Error(mapSupabaseError(error));
+
+    const session = data.session;
+    const user = data.user;
+
+    if (!session?.access_token) {
+      throw new Error("No se pudo obtener token de sesión.");
+    }
+    if (!user) {
+      throw new Error("No se pudo obtener usuario.");
+    }
+
+    return {
+      token: session.access_token,
+      user: toAuthUser(user),
+    };
+  },
+
+  /**
+   * ✅ Logout real en Supabase
+   */
   async logout(): Promise<void> {
-    // demo: no-op
+    const supabase = getSupabase();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      // No bloqueamos logout por errores raros
+      console.warn("[authService.logout] supabase error:", error);
+    }
   },
 
-  // -------- RESET FLOW (demo) --------
+  // -------- RESET FLOW (Supabase) --------
+  /**
+   * ✅ En Supabase el reset se hace por correo (link)
+   * Tu UI puede seguir mostrando "te enviamos correo".
+   */
   async requestPasswordReset(email: string): Promise<{ devCode?: string }> {
+    const supabase = getSupabase();
     const e = normalizeEmail(email);
 
-    // ✅ UX: no revelamos si existe o no
-    const map = await readResetMap();
-    const code = genCode6();
+    const { error } = await supabase.auth.resetPasswordForEmail(e);
+    if (error) throw new Error(mapSupabaseError(error));
 
-    map[e] = { code, expiresAt: Date.now() + 15 * 60 * 1000 }; // 15 min
-    await writeResetMap(map);
-
-    // ✅ SOLUCIÓN DEFINITIVA: en demo SIEMPRE devolvemos el código (según flag)
-    return DEMO_SHOW_RESET_CODE ? { devCode: code } : {};
+    // No hay devCode en producción
+    return {};
   },
 
-  async verifyResetCode(email: string, code: string): Promise<void> {
-    const e = normalizeEmail(email);
-    const c = code.trim();
-    const map = await readResetMap();
-    const rec = map[e];
-
-    if (!rec) throw new Error("No hay un código activo para ese correo.");
-    if (Date.now() > rec.expiresAt)
-      throw new Error("El código expiró. Reenvíalo.");
-    if (rec.code !== c) throw new Error("Código incorrecto.");
+  /**
+   * En Supabase, la verificación del código y el cambio de password
+   * normalmente pasan por un link de email (deep link).
+   * Aquí dejamos mensajes claros para tu UI.
+   */
+  async verifyResetCode(_email: string, _code: string): Promise<void> {
+    throw new Error(
+      "En Supabase la recuperación se confirma desde el enlace enviado a tu correo.",
+    );
   },
 
   async resetPassword(
-    email: string,
-    code: string,
-    newPassword: string,
+    _email: string,
+    _code: string,
+    _newPassword: string,
   ): Promise<void> {
-    const e = normalizeEmail(email);
-    await this.verifyResetCode(e, code);
-
-    const users = await readUsers();
-    const idx = users.findIndex((u) => u.email === e);
-    if (idx === -1) {
-      throw new Error("No se pudo actualizar la contraseña.");
-    }
-
-    users[idx] = { ...users[idx], password: newPassword };
-    await writeUsers(users);
-
-    const map = await readResetMap();
-    delete map[e];
-    await writeResetMap(map);
+    throw new Error(
+      "En Supabase la contraseña se cambia desde el enlace enviado a tu correo.",
+    );
   },
 };

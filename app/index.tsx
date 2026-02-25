@@ -9,7 +9,6 @@ import { authActions, useAuthStore } from "@/src/store/authStore";
 export default function Index() {
   const { colors } = useTheme();
   const hydrated = useAuthStore((s) => s.hydrated);
-  const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
     void authActions.bootstrap();
@@ -33,7 +32,6 @@ export default function Index() {
     );
   }
 
-  return (
-    <Redirect href={token ? "/(tabs)/dashboard" : "/(auth)/landing-page"} />
-  );
+  // ✅ Opción B: SIEMPRE ir a Landing, aunque exista token
+  return <Redirect href="/(auth)/landing-page" />;
 }

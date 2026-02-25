@@ -1,4 +1,5 @@
 // src/store/profileStore.ts
+import { apiRequest } from "@/src/lib/apiClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMemo, useSyncExternalStore } from "react";
 
@@ -21,7 +22,7 @@ type State = {
   error: string | null;
 
   // ✅ para poder “re-hidratar” por usuario
-  userKey: string | null; // ej: user.id o email normalizado
+  userKey: string | null;
 };
 
 const BASE_KEY = "smartbiz.profileStore.v1";
@@ -56,7 +57,6 @@ function makeProfileFromAuth(params: {
   };
 }
 
-// 👇 Perfil default (solo para cuando no hay sesión)
 const DEFAULT_PROFILE: UserProfile = makeProfileFromAuth({
   id: "demo-user",
   email: "andres@smartbiz.demo",
@@ -74,10 +74,10 @@ const state: State = {
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
-function setState(patch: Partial<State>) {
+function setState(patch: Partial<State>, opts?: { skipPersist?: boolean }) {
   Object.assign(state, patch);
   emit();
-  void persist();
+  if (!opts?.skipPersist) void persist();
 }
 
 function getState() {
@@ -139,47 +139,47 @@ async function hydrateForUser(userKey: string, fallbackProfile: UserProfile) {
 }
 
 export const profileActions = {
-  /**
-   * ✅ Compatibilidad: si alguien lo llama sin sesión,
-   * deja el store hidratado con DEFAULT_PROFILE.
-   * (Esto evita errores en pantallas que todavía lo usen.)
-   */
   async bootstrap() {
     if (getState().hydrated) return;
-    setState({
-      hydrated: true,
-      loading: false,
-      error: null,
-      userKey: null,
-      profile: DEFAULT_PROFILE,
-    });
-  },
-
-  /**
-   * ✅ Se llama cuando YA hay sesión.
-   * Esto fuerza a que el perfil pertenezca al usuario autenticado (id/email).
-   */
-  async bootstrapForAuthUser(
-    user: { id: string; email: string; fullName?: string } | null,
-  ) {
-    if (!user) {
-      // sin sesión
-      setState({
-        userKey: null,
-        profile: DEFAULT_PROFILE,
+    setState(
+      {
         hydrated: true,
         loading: false,
         error: null,
-      });
+        userKey: null,
+        profile: DEFAULT_PROFILE,
+      },
+      { skipPersist: true },
+    );
+  },
+
+  /**
+   * ✅ Se llama cuando ya hay sesión.
+   * Mantiene el perfil local por usuario y (opcional) puede sincronizar desde API con token.
+   */
+  async bootstrapForAuthUser(
+    user: { id: string; email: string; fullName?: string } | null,
+    token?: string | null,
+  ) {
+    if (!user) {
+      setState(
+        {
+          userKey: null,
+          profile: DEFAULT_PROFILE,
+          hydrated: true,
+          loading: false,
+          error: null,
+        },
+        { skipPersist: true },
+      );
       return;
     }
 
     const userKey = user.id || normalizeEmail(user.email);
     const fallback = makeProfileFromAuth(user);
 
-    // Si ya está hidratado para este mismo usuario, solo sincroniza campos básicos
+    // Si ya está hidratado para el mismo usuario, sync suave
     if (getState().hydrated && getState().userKey === userKey) {
-      // sync suave (no pisa avatar/phone si ya los tiene)
       const current = getState().profile;
       const next: UserProfile = {
         ...current,
@@ -189,39 +189,80 @@ export const profileActions = {
         updatedAt: new Date().toISOString(),
       };
       setState({ profile: next });
-      return;
+    } else {
+      setState(
+        { hydrated: false, loading: false, error: null, userKey },
+        { skipPersist: true },
+      );
+      await hydrateForUser(userKey, fallback);
     }
 
-    // Si cambió el usuario, re-hidrata desde storage de ESE usuario
-    setState({ hydrated: false, loading: false, error: null, userKey });
-    await hydrateForUser(userKey, fallback);
+    // ✅ Sync remoto opcional (Supabase-only): /api/auth/me
+    if (token) {
+      await this.syncFromApi(token);
+    }
   },
 
-  // ✅ útil en logout: limpia UI y vuelve a default (no borra el storage histórico)
+  /**
+   * ✅ Sync remoto mínimo (no depende de Cockroach)
+   * Web: GET /api/auth/me
+   */
+  async syncFromApi(token: string) {
+    setState({ loading: true, error: null });
+
+    try {
+      const res = await apiRequest<{
+        user: { id: string; email: string | null };
+      }>("/api/auth/me", { method: "GET", token });
+
+      const u = res.data.user;
+
+      // Sync suave: no pisa avatar/phone
+      const current = getState().profile;
+      const next: UserProfile = {
+        ...current,
+        id: u.id,
+        email: u.email ? normalizeEmail(u.email) : current.email,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setState({ profile: next, loading: false, error: null });
+      return next;
+    } catch (e: any) {
+      setState({
+        loading: false,
+        error: e?.message ?? "No se pudo sincronizar perfil.",
+      });
+      return null;
+    }
+  },
+
   resetLocal() {
-    setState({
-      userKey: null,
-      profile: DEFAULT_PROFILE,
-      hydrated: true,
-      loading: false,
-      error: null,
-    });
+    setState(
+      {
+        userKey: null,
+        profile: DEFAULT_PROFILE,
+        hydrated: true,
+        loading: false,
+        error: null,
+      },
+      { skipPersist: true },
+    );
   },
 
-  // ✅ “GET” demo
   getProfile() {
     return getState().profile;
   },
 
-  // ✅ “POST/PATCH” demo
   async updateProfile(patch: Partial<Omit<UserProfile, "id">>) {
+    // local-only por ahora
     setState({ loading: true, error: null });
     const next: UserProfile = {
       ...getState().profile,
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    setState({ profile: next, loading: false });
+    setState({ profile: next, loading: false, error: null });
     return next;
   },
 
@@ -233,7 +274,10 @@ export const profileActions = {
     return this.updateProfile({ avatarUri });
   },
 
-  // ✅ “POST” demo: cambiar contraseña (solo frontend)
+  /**
+   * Password real depende de Supabase (SDK) o endpoint dedicado.
+   * Lo dejamos demo por ahora.
+   */
   async changePassword(params: {
     currentPassword: string;
     newPassword: string;

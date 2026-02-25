@@ -8,8 +8,10 @@ import type { Product, StockAdjustment, StockReason } from "../types/inventory";
 
 import { notificationActions } from "./notificationStore";
 
+// ✅ usa tu cliente HTTP que ya maneja Bearer y contrato {ok:true,data:{}}
+import { apiRequest } from "@/src/lib/apiClient";
+
 type State = {
-  // ✅ por usuario
   userId: string | null;
 
   products: Product[];
@@ -144,10 +146,18 @@ function requireUserId() {
   return uid;
 }
 
+// ✅ helper: intenta API; si falla, regresa null (para fallback demo)
+async function tryApi<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
 export const inventoryActions = {
   // ✅ boot por usuario
   async bootstrap(userId?: string) {
-    // compat: si no pasan userId, no tronamos UI vieja
     if (!userId) {
       if (!getState().hydrated)
         setState({ hydrated: true }, { skipPersist: true });
@@ -172,7 +182,6 @@ export const inventoryActions = {
     setState({ loading: false, hydrated: true });
   },
 
-  // ✅ para tu authStore (evita “pegado” entre usuarios)
   clearLocalMemoryOnly() {
     setState(
       {
@@ -203,8 +212,14 @@ export const inventoryActions = {
     await flush();
   },
 
-  async loadProducts(businessId: ID) {
-    const userId = requireUserId();
+  /**
+   * ✅ Carga productos por businessId
+   * - Si pasas token, intenta API real: GET /api/product (con header X-Business-Id)
+   * - Si falla o no hay token, usa demo: inventoryService
+   */
+  async loadProducts(businessId: ID, token?: string | null) {
+    requireUserId();
+
     const local = getState().products.filter(
       (p) => p.businessId === businessId,
     );
@@ -212,7 +227,30 @@ export const inventoryActions = {
 
     setState({ loading: true, error: null });
 
+    // 1) API real
+    if (token) {
+      const apiRes = await tryApi(() =>
+        apiRequest<{ items: Product[] }>("/api/product", {
+          method: "GET",
+          token,
+          businessId: String(businessId),
+        }),
+      );
+
+      const items = (apiRes as any)?.data?.items as Product[] | undefined;
+      if (items && Array.isArray(items)) {
+        const withoutBiz = getState().products.filter(
+          (p) => p.businessId !== businessId,
+        );
+        setState({ products: [...items, ...withoutBiz], loading: false });
+        await flush();
+        return;
+      }
+    }
+
+    // 2) Fallback demo
     try {
+      const userId = requireUserId();
       const api = await inventoryService.listProducts(userId, businessId);
 
       const seed: Product[] =
@@ -245,11 +283,53 @@ export const inventoryActions = {
     }
   },
 
-  async createProduct(input: Omit<Product, "id" | "createdAt" | "updatedAt">) {
-    const userId = requireUserId();
+  /**
+   * ✅ Crea producto
+   * - API real: POST /api/product (con X-Business-Id y body)
+   * - Fallback demo: inventoryService.createProduct
+   */
+  async createProduct(
+    input: Omit<Product, "id" | "createdAt" | "updatedAt">,
+    token?: string | null,
+  ) {
+    requireUserId();
     setState({ loading: true, error: null });
 
+    // 1) API real
+    if (token) {
+      const apiRes = await tryApi(() =>
+        apiRequest<{ product: Product }>("/api/product", {
+          method: "POST",
+          token,
+          businessId: String(input.businessId),
+          body: input,
+        }),
+      );
+      const created = (apiRes as any)?.data?.product as Product | undefined;
+      if (created) {
+        setState({
+          products: [created, ...getState().products],
+          loading: false,
+        });
+        await flush();
+
+        void notificationActions.add({
+          kind: "inventory",
+          title: "Producto creado",
+          body: `Se agregó "${created.name}" al inventario.`,
+          meta: {
+            route: "/(tabs)/inventory",
+            payload: { productId: created.id },
+          },
+        });
+
+        return created;
+      }
+    }
+
+    // 2) Fallback demo
     try {
+      const userId = requireUserId();
       const created = await inventoryService.createProduct(userId, input);
       setState({ products: [created, ...getState().products], loading: false });
       await flush();
@@ -271,8 +351,14 @@ export const inventoryActions = {
     }
   },
 
-  async updateProduct(id: ID, patch: Partial<Product>) {
-    const userId = requireUserId();
+  /**
+   * ✅ Actualiza producto
+   * - API real: PATCH /api/product/:id
+   * - fallback demo: inventoryService.updateProduct
+   */
+  async updateProduct(id: ID, patch: Partial<Product>, token?: string | null) {
+    requireUserId();
+
     const current = getState().products.find((p) => p.id === id);
     if (!current) throw new Error("Product not found");
 
@@ -288,14 +374,41 @@ export const inventoryActions = {
       error: null,
     });
 
+    // 1) API real
+    if (token) {
+      const apiRes = await tryApi(() =>
+        apiRequest<{ product: Product }>(`/api/product/${id}`, {
+          method: "PATCH",
+          token,
+          businessId: String(current.businessId),
+          body: patch,
+        }),
+      );
+      const apiProduct = (apiRes as any)?.data?.product as Product | undefined;
+      if (apiProduct) {
+        const merged: Product = {
+          ...optimistic,
+          ...apiProduct,
+          updatedAt: apiProduct.updatedAt ?? optimistic.updatedAt,
+        };
+        setState({
+          products: getState().products.map((p) => (p.id === id ? merged : p)),
+          loading: false,
+        });
+        await flush();
+        return merged;
+      }
+    }
+
+    // 2) fallback demo
     try {
+      const userId = requireUserId();
       const api = await inventoryService.updateProduct(userId, id, patch);
       const merged: Product = {
         ...optimistic,
         ...api,
         updatedAt: api.updatedAt ?? optimistic.updatedAt,
       };
-
       setState({
         products: getState().products.map((p) => (p.id === id ? merged : p)),
         loading: false,
@@ -309,8 +422,16 @@ export const inventoryActions = {
     }
   },
 
-  async deleteProduct(id: ID) {
-    const userId = requireUserId();
+  /**
+   * ✅ Elimina producto
+   * - API real: DELETE /api/product/:id
+   * - fallback demo: inventoryService.deleteProduct
+   */
+  async deleteProduct(id: ID, token?: string | null) {
+    requireUserId();
+
+    const current = getState().products.find((p) => p.id === id);
+
     setState({
       products: getState().products.filter((p) => p.id !== id),
       adjustments: getState().adjustments.filter((a) => a.productId !== id),
@@ -318,7 +439,25 @@ export const inventoryActions = {
       error: null,
     });
 
+    // 1) API real
+    if (token && current) {
+      const ok = await tryApi(() =>
+        apiRequest<{}>(`/api/product/${id}`, {
+          method: "DELETE",
+          token,
+          businessId: String(current.businessId),
+        }),
+      );
+      if (ok) {
+        setState({ loading: false });
+        await flush();
+        return;
+      }
+    }
+
+    // 2) fallback demo
     try {
+      const userId = requireUserId();
       await inventoryService.deleteProduct(userId, id);
     } catch {
       // demo
@@ -332,13 +471,21 @@ export const inventoryActions = {
     return getState().products.find((p) => p.id === id) ?? null;
   },
 
-  async adjustStock(params: {
-    productId: ID;
-    delta: number;
-    reason: StockReason;
-    note?: string;
-  }) {
-    const userId = requireUserId();
+  /**
+   * ✅ Ajuste de stock
+   * - API real: POST /api/product/:id/stock
+   * - fallback demo: inventoryService.addAdjustment
+   */
+  async adjustStock(
+    params: {
+      productId: ID;
+      delta: number;
+      reason: StockReason;
+      note?: string;
+    },
+    token?: string | null,
+  ) {
+    requireUserId();
     const { productId, delta, reason, note } = params;
 
     const current = getState().products.find((p) => p.id === productId);
@@ -391,7 +538,22 @@ export const inventoryActions = {
       });
     }
 
+    // 1) API real
+    if (token) {
+      const ok = await tryApi(() =>
+        apiRequest<{ product?: Product }>(`/api/product/${productId}/stock`, {
+          method: "POST",
+          token,
+          businessId: String(businessId),
+          body: { delta, reason, note },
+        }),
+      );
+      if (ok) return;
+    }
+
+    // 2) fallback demo
     try {
+      const userId = requireUserId();
       await inventoryService.addAdjustment(userId, {
         businessId,
         productId,
@@ -402,6 +564,24 @@ export const inventoryActions = {
     } catch {
       // demo
     }
+  },
+
+  /**
+   * (Opcional) Movimientos reales: GET /api/product/:id/movements
+   */
+  async loadMovements(productId: ID, token?: string | null) {
+    const current = getState().products.find((p) => p.id === productId);
+    if (!current || !token) return null;
+
+    const res = await tryApi(() =>
+      apiRequest<{ items: any[] }>(`/api/product/${productId}/movements`, {
+        method: "GET",
+        token,
+        businessId: String(current.businessId),
+      }),
+    );
+
+    return (res as any)?.data?.items ?? null;
   },
 };
 

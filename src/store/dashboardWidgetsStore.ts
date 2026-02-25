@@ -1,3 +1,4 @@
+// src/store/dashboardWidgetsStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create, type StateCreator } from "zustand";
 
@@ -20,6 +21,7 @@ type StoreState = {
   setEnabled: (k: DashboardWidgetKey, v: boolean) => void;
 
   hydrate: (userId?: string) => Promise<void>;
+  bootstrap: (userId?: string) => Promise<void>; // ✅ NUEVO alias (consistencia)
   persist: () => Promise<void>;
   clearLocalMemoryOnly: () => void;
 };
@@ -82,6 +84,11 @@ const creator: StateCreator<StoreState> = (set, get) => ({
     } finally {
       set({ hydrated: true, userId });
     }
+  },
+
+  // ✅ NUEVO: alias para consistencia con otros stores
+  bootstrap: async (userId?: string) => {
+    await get().hydrate(userId);
   },
 
   persist: async () => {

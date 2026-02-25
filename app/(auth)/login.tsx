@@ -5,10 +5,13 @@ import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import { authActions } from "@/src/store/authStore";
-import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore"; // ✅ ADD
+import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
+
+// ✅ API client (puente móvil → web)
+import { apiRequest } from "@/src/lib/apiClient";
 
 function isValidEmail(v: string) {
   const x = v.trim().toLowerCase();
@@ -50,7 +53,29 @@ export default function LoginScreen() {
       // ✅ Limpia widgets (por si venías de otro usuario / demo)
       useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 
-      await authActions.login(e, p);
+      // 1) Login (tu authService devuelve session.token)
+      const session = await authActions.login(e, p);
+
+      // ✅ DIAGNÓSTICO: ver si el token es JWT real (debe empezar con "eyJ")
+      const token = session?.token ?? "";
+      console.log("TOKEN_HEAD", String(token).slice(0, 10));
+
+      // 2) ✅ Puente móvil → web: token → /api/auth/me
+      try {
+        if (!token) {
+          console.log("[bridge] Login OK, pero session.token viene vacío");
+        } else {
+          const res = await apiRequest<{
+            user: { id: string; email: string | null };
+          }>("/api/auth/me", { token });
+
+          console.log("[bridge] /api/auth/me OK:", res.data.user);
+        }
+      } catch (bridgeErr) {
+        console.log("[bridge] /api/auth/me FAIL:", String(bridgeErr));
+      }
+
+      // 3) Navega normal
       router.replace("/(tabs)/dashboard" as any);
     } catch (err: any) {
       setErrorMsg(err?.message ?? "Error al iniciar sesión.");

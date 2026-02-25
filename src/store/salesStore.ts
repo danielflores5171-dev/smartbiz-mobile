@@ -7,6 +7,9 @@ import type { CartItem, PaymentMethod, Sale } from "../types/sales";
 import { inventoryActions } from "./inventoryStore";
 import { notificationActions } from "./notificationStore";
 
+// ✅ API client real (Bearer + contrato {ok:true,data:{...}})
+import { apiRequest } from "@/src/lib/apiClient";
+
 type State = {
   userId: string | null;
 
@@ -160,6 +163,15 @@ function requireUserId() {
   return uid;
 }
 
+// ✅ helper: intenta API; si falla, regresa null (fallback demo)
+async function tryApi<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
 export const salesActions = {
   async bootstrap(userId?: string) {
     if (!userId) {
@@ -186,7 +198,6 @@ export const salesActions = {
 
     await hydrateForUser(userId);
 
-    // opcional: asegura persist en formato nuevo
     void persist();
   },
 
@@ -206,16 +217,40 @@ export const salesActions = {
     );
   },
 
-  // compat
   clearLocal() {
     this.clearLocalMemoryOnly();
   },
 
-  async loadSales(businessId: ID) {
-    const userId = requireUserId();
+  /**
+   * ✅ Carga ventas por business
+   * - API real: GET /api/sales (con X-Business-Id)
+   * - fallback demo: salesService.listSales
+   */
+  async loadSales(businessId: ID, token?: string | null) {
+    requireUserId();
     setState({ loading: true, error: null });
 
+    // 1) API real
+    if (token) {
+      const apiRes = await tryApi(() =>
+        apiRequest<{ items: Sale[] }>("/api/sales", {
+          method: "GET",
+          token,
+          businessId: String(businessId),
+        }),
+      );
+
+      const items = (apiRes as any)?.data?.items as Sale[] | undefined;
+      if (items && Array.isArray(items)) {
+        const next = { ...getState().salesByBusiness, [businessId]: items };
+        setState({ salesByBusiness: next, loading: false, error: null });
+        return;
+      }
+    }
+
+    // 2) fallback demo
     try {
+      const userId = requireUserId();
       const api = await salesService.listSales(userId, businessId);
       const next = { ...getState().salesByBusiness, [businessId]: api };
       setState({ salesByBusiness: next, loading: false, error: null });
@@ -227,8 +262,14 @@ export const salesActions = {
     }
   },
 
-  deleteSale(businessId: ID, id: ID) {
+  /**
+   * ✅ Elimina venta
+   * - API real: DELETE /api/sales/:saleId (con X-Business-Id)
+   * - fallback demo: salesService.deleteSale
+   */
+  async deleteSale(businessId: ID, id: ID, token?: string | null) {
     const userId = getState().userId;
+
     const current = getState().salesByBusiness[businessId] ?? [];
     const nextList = current.filter((s) => s.id !== id);
 
@@ -239,6 +280,19 @@ export const salesActions = {
       },
     });
 
+    // 1) API real
+    if (token) {
+      const ok = await tryApi(() =>
+        apiRequest<{}>(`/api/sales/${id}`, {
+          method: "DELETE",
+          token,
+          businessId: String(businessId),
+        }),
+      );
+      if (ok) return;
+    }
+
+    // 2) fallback demo
     if (userId) {
       void salesService.deleteSale(userId, businessId, id).catch(() => {});
     }
@@ -284,13 +338,23 @@ export const salesActions = {
     setState({ discount: Math.max(0, value || 0) });
   },
 
-  async checkout(params: {
-    businessId: ID;
-    paymentMethod: PaymentMethod;
-    paid: number;
-    note?: string;
-    taxRate?: number;
-  }) {
+  /**
+   * ✅ Checkout / crear venta
+   * - API real: POST /api/sales (con X-Business-Id + body)
+   * - fallback demo: salesService.createSale
+   *
+   * También intenta ajustar stock (API si token, demo si no).
+   */
+  async checkout(
+    params: {
+      businessId: ID;
+      paymentMethod: PaymentMethod;
+      paid: number;
+      note?: string;
+      taxRate?: number;
+    },
+    token?: string | null,
+  ) {
     const userId = requireUserId();
 
     const s = getState();
@@ -323,22 +387,71 @@ export const salesActions = {
 
     setState({ loading: true, error: null });
 
-    // 1) descuenta inventario (demo)
+    // 1) descuenta inventario (API si token, demo si no)
     try {
       for (const it of cart) {
-        await inventoryActions.adjustStock({
-          productId: it.productId as any,
-          delta: -Math.abs(it.qty),
-          reason: "Venta",
-          note: `Venta (pendiente de id)`,
-        });
+        await inventoryActions.adjustStock(
+          {
+            productId: it.productId as any,
+            delta: -Math.abs(it.qty),
+            reason: "Venta",
+            note: `Venta (pendiente de id)`,
+          },
+          token,
+        );
       }
     } catch {
       // demo
     }
 
-    // 2) crea venta persistente por usuario+negocio
+    // 2) Crear venta persistente (API real primero)
     try {
+      // API real
+      if (token) {
+        const apiRes = await tryApi(() =>
+          apiRequest<{ sale: Sale }>("/api/sales", {
+            method: "POST",
+            token,
+            businessId: String(params.businessId),
+            body: saleInput,
+          }),
+        );
+
+        const apiSale = (apiRes as any)?.data?.sale as Sale | undefined;
+        if (apiSale) {
+          const current = getState().salesByBusiness[params.businessId] ?? [];
+          const nextList = [apiSale, ...current].reduce<Sale[]>((acc, x) => {
+            if (acc.some((s) => s.id === x.id)) return acc;
+            acc.push(x);
+            return acc;
+          }, []);
+
+          setState({
+            salesByBusiness: {
+              ...getState().salesByBusiness,
+              [params.businessId]: nextList,
+            },
+            lastSaleId: apiSale.id,
+            loading: false,
+          });
+
+          setState({ cart: [], discount: 0 });
+
+          void notificationActions.add({
+            kind: "sales",
+            title: "Venta registrada",
+            body: `Total: $${apiSale.total.toFixed(2)} · ${apiSale.paymentMethod.toUpperCase()}`,
+            meta: {
+              route: "/(tabs)/sales/sales-history",
+              payload: { saleId: apiSale.id },
+            },
+          });
+
+          return apiSale;
+        }
+      }
+
+      // fallback demo
       const apiSale = await salesService.createSale(
         userId,
         params.businessId,
@@ -392,6 +505,22 @@ export const salesActions = {
       (getState().salesByBusiness[businessId] ?? []).find((s) => s.id === id) ??
       null
     );
+  },
+
+  /**
+   * (Opcional) Traer detalle real cuando ya lo quieras usar:
+   * GET /api/sales/:saleId
+   */
+  async fetchSaleDetail(businessId: ID, saleId: ID, token?: string | null) {
+    if (!token) return null;
+    const res = await tryApi(() =>
+      apiRequest<{ sale: Sale }>(`/api/sales/${saleId}`, {
+        method: "GET",
+        token,
+        businessId: String(businessId),
+      }),
+    );
+    return (res as any)?.data?.sale ?? null;
   },
 };
 

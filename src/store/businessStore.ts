@@ -4,10 +4,13 @@ import { useMemo, useSyncExternalStore } from "react";
 import { businessService } from "../services/businessService";
 import type { Business, Employee, ID, Supplier } from "../types/business";
 
-type State = {
-  // ✅ por usuario
-  userId: string | null;
+// ✅ NUEVO: adapters API reales (ajusta rutas si tu carpeta api es otra)
+import { businessApi } from "@/src/api/businessApi";
+import { employeesApi } from "@/src/api/employeesApi";
+import { suppliersApi } from "@/src/api/suppliersApi";
 
+type State = {
+  userId: string | null;
   hydrated: boolean;
 
   businesses: Business[];
@@ -100,7 +103,7 @@ async function hydrateForUser(userId: string) {
         userId,
         hydrated: true,
         businesses: [],
-        activeBusinessId: null, // ✅ NO activo por default
+        activeBusinessId: null,
         employees: [],
         suppliers: [],
         loading: false,
@@ -119,7 +122,7 @@ async function hydrateForUser(userId: string) {
         userId,
         hydrated: true,
         businesses: parsed?.businesses ?? [],
-        activeBusinessId: parsed?.activeBusinessId ?? null, // ✅ respeta lo que el user eligió
+        activeBusinessId: parsed?.activeBusinessId ?? null,
         employees: parsed?.employees ?? [],
         suppliers: parsed?.suppliers ?? [],
         loading: false,
@@ -144,13 +147,24 @@ async function hydrateForUser(userId: string) {
   }
 }
 
+/**
+ * Helper: intenta API; si falla, cae a demo.
+ */
+async function tryApi<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
 export const businessActions = {
   /**
-   * ✅ Bootstrap por usuario (OBLIGATORIO pasar userId)
+   * ✅ Bootstrap por usuario
+   * Si mandas token, intentará API real primero, si falla cae al demo.
    */
-  async bootstrap(userId?: string) {
+  async bootstrap(userId?: string, token?: string) {
     if (!userId) {
-      // si alguien lo llama sin userId, no truena, pero no cargamos nada
       if (!getState().hydrated)
         setState({ hydrated: true }, { skipPersist: true });
       return;
@@ -174,35 +188,43 @@ export const businessActions = {
 
     await hydrateForUser(userId);
 
-    // ✅ IMPORTANTÍSIMO:
-    // Ya NO sembramos seed ni activamos nada.
-    // Si quisieras traer remoto, lo haríamos solo para LISTAR,
-    // pero sin autoseleccionar un negocio.
-    try {
-      const remote = await businessService.listBusinesses();
-      if (remote.length > 0 && getState().businesses.length === 0) {
-        setState({ businesses: remote }); // ✅ NO set activeBusinessId aquí
-        await flush();
+    // 1) Intentar traer businesses desde API real
+    if (token) {
+      const apiRes = await tryApi(() => businessApi.list(token));
+      if (apiRes && Array.isArray((apiRes as any).data?.items)) {
+        const items = (apiRes as any).data.items as Business[];
+        if (items.length > 0) {
+          // ✅ NO autoseleccionamos negocio
+          setState({ businesses: items });
+          await flush();
+        }
       }
-    } catch {
-      // demo: silencioso
+    }
+
+    // 2) Fallback demo si no hay businesses aún
+    if (getState().businesses.length === 0) {
+      try {
+        const remote = await businessService.listBusinesses();
+        if (remote.length > 0) {
+          setState({ businesses: remote });
+          await flush();
+        }
+      } catch {
+        // demo silencioso
+      }
     }
 
     setState({ loading: false, hydrated: true });
 
-    // ✅ Si ya había un negocio activo (porque el usuario lo eligió antes),
-    // precargamos dependientes.
+    // ✅ Si el usuario ya tenía un negocio activo en local, precarga dependientes.
     const bizId = getState().activeBusinessId;
     if (bizId) {
-      await this.loadEmployees(bizId);
-      await this.loadSuppliers(bizId);
+      await this.loadEmployees(bizId, token);
+      await this.loadSuppliers(bizId, token);
       await flush();
     }
   },
 
-  /**
-   * Útil al desloguear para que no se quede “pegado” el state anterior.
-   */
   clearLocalMemoryOnly() {
     setState(
       {
@@ -241,7 +263,8 @@ export const businessActions = {
   },
 
   /**
-   * ✅ El usuario elige manualmente su negocio
+   * ✅ El usuario elige manualmente negocio activo
+   * (si luego quieres sincronizarlo a backend, lo hacemos cuando tengas permisos)
    */
   setActiveBusiness(id: ID | null) {
     setState({ activeBusinessId: id });
@@ -252,22 +275,33 @@ export const businessActions = {
   },
 
   // ---- Businesses ----
-  async createBusiness(input: Omit<Business, "id" | "createdAt">) {
+  async createBusiness(
+    input: Omit<Business, "id" | "createdAt">,
+    token?: string,
+  ) {
     setState({ loading: true, error: null });
     try {
+      // API real si token
+      if (token) {
+        const apiRes = await tryApi(() => businessApi.create(token, input));
+        const created = (apiRes as any)?.data?.business as Business | undefined;
+        if (created) {
+          setState({
+            businesses: [created, ...getState().businesses],
+            loading: false,
+          });
+          await flush();
+          return created;
+        }
+      }
+
+      // fallback demo
       const created = await businessService.createBusiness(input);
-
-      const next = [created, ...getState().businesses];
-
-      // ✅ NO activar automáticamente
       setState({
-        businesses: next,
+        businesses: [created, ...getState().businesses],
         loading: false,
       });
-
       await flush();
-
-      // NO precargamos empleados/proveedores si no está activo
       return created;
     } catch (e: any) {
       setState({ loading: false, error: e?.message ?? "Error" });
@@ -275,15 +309,21 @@ export const businessActions = {
     }
   },
 
-  async updateBusiness(id: ID, patch: Partial<Business>) {
+  async updateBusiness(id: ID, patch: Partial<Business>, token?: string) {
     setState({ loading: true, error: null });
 
+    // optimista local
     const next = getState().businesses.map((b) =>
       b.id === id ? { ...b, ...patch } : b,
     );
-
     setState({ businesses: next, loading: false });
     await flush();
+
+    // API real si token; si falla, demo
+    if (token) {
+      const ok = await tryApi(() => businessApi.update(token, id, patch));
+      if (ok) return getState().businesses.find((b) => b.id === id) ?? null;
+    }
 
     try {
       await businessService.updateBusiness(id, patch);
@@ -294,12 +334,10 @@ export const businessActions = {
     return getState().businesses.find((b) => b.id === id) ?? null;
   },
 
-  async deleteBusiness(id: ID) {
+  async deleteBusiness(id: ID, token?: string) {
     setState({ loading: true, error: null });
 
     const remaining = getState().businesses.filter((b) => b.id !== id);
-
-    // ✅ Si borras el activo, se queda sin activo (null)
     const nextActive =
       getState().activeBusinessId === id ? null : getState().activeBusinessId;
 
@@ -313,6 +351,11 @@ export const businessActions = {
 
     await flush();
 
+    if (token) {
+      const ok = await tryApi(() => businessApi.remove(token, id));
+      if (ok) return;
+    }
+
     try {
       await businessService.deleteBusiness(id);
     } catch {
@@ -321,17 +364,30 @@ export const businessActions = {
   },
 
   // ---- Employees ----
-  async loadEmployees(businessId: ID) {
+  async loadEmployees(businessId: ID, token?: string) {
     const has = getState().employees.some((e) => e.businessId === businessId);
     if (has) return;
-    await this.refreshEmployees(businessId);
+    await this.refreshEmployees(businessId, token);
     await flush();
   },
 
-  async refreshEmployees(businessId: ID) {
+  async refreshEmployees(businessId: ID, token?: string) {
+    // API real
+    if (token) {
+      const apiRes = await tryApi(() => employeesApi.list(token, businessId));
+      const items = (apiRes as any)?.data?.items as Employee[] | undefined;
+      if (items && Array.isArray(items)) {
+        const others = getState().employees.filter(
+          (e) => e.businessId !== businessId,
+        );
+        setState({ employees: [...items, ...others] });
+        return;
+      }
+    }
+
+    // fallback demo
     try {
       const list = await businessService.listEmployees(businessId);
-
       const seed: Employee[] =
         list.length > 0
           ? list
@@ -356,10 +412,28 @@ export const businessActions = {
     }
   },
 
-  async addEmployeeQuick(fullName: string) {
+  async addEmployeeQuick(fullName: string, token?: string) {
     const bizId = getState().activeBusinessId;
     if (!bizId) return;
 
+    // API real si token (si tu endpoint requiere body más completo, ajustamos luego)
+    if (token) {
+      const apiRes = await tryApi(() =>
+        employeesApi.create(token, bizId, {
+          fullName,
+          role: "STAFF",
+          status: "active",
+        }),
+      );
+      const created = (apiRes as any)?.data?.member as Employee | undefined;
+      if (created) {
+        setState({ employees: [created, ...getState().employees] });
+        await flush();
+        return;
+      }
+    }
+
+    // fallback demo
     const created = await businessService.createEmployee({
       businessId: bizId,
       fullName,
@@ -380,14 +454,28 @@ export const businessActions = {
   },
 
   // ---- Suppliers ----
-  async loadSuppliers(businessId: ID) {
+  async loadSuppliers(businessId: ID, token?: string) {
     const has = getState().suppliers.some((s) => s.businessId === businessId);
     if (has) return;
-    await this.refreshSuppliers(businessId);
+    await this.refreshSuppliers(businessId, token);
     await flush();
   },
 
-  async refreshSuppliers(businessId: ID) {
+  async refreshSuppliers(businessId: ID, token?: string) {
+    // API real
+    if (token) {
+      const apiRes = await tryApi(() => suppliersApi.list(token, businessId));
+      const items = (apiRes as any)?.data?.items as Supplier[] | undefined;
+      if (items && Array.isArray(items)) {
+        const others = getState().suppliers.filter(
+          (s) => s.businessId !== businessId,
+        );
+        setState({ suppliers: [...items, ...others] });
+        return;
+      }
+    }
+
+    // fallback demo
     try {
       const list = await businessService.listSuppliers(businessId);
 
@@ -416,20 +504,49 @@ export const businessActions = {
     }
   },
 
-  async createSupplier(input: Omit<Supplier, "id" | "createdAt">) {
+  async createSupplier(
+    input: Omit<Supplier, "id" | "createdAt">,
+    token?: string,
+  ) {
+    // API real
+    if (token) {
+      const apiRes = await tryApi(() =>
+        suppliersApi.create(token, input.businessId, input),
+      );
+      const created = (apiRes as any)?.data?.supplier as Supplier | undefined;
+      if (created) {
+        setState({ suppliers: [created, ...getState().suppliers] });
+        await flush();
+        return created;
+      }
+    }
+
+    // fallback demo
     const created = await businessService.createSupplier(input);
     setState({ suppliers: [created, ...getState().suppliers] });
     await flush();
     return created;
   },
 
-  async updateSupplier(id: ID, patch: Partial<Supplier>) {
+  async updateSupplier(id: ID, patch: Partial<Supplier>, token?: string) {
     setState({
       suppliers: getState().suppliers.map((s) =>
         s.id === id ? { ...s, ...patch } : s,
       ),
     });
     await flush();
+
+    if (token) {
+      const bizId =
+        patch.businessId ??
+        getState().suppliers.find((s) => s.id === id)?.businessId;
+      if (bizId) {
+        const ok = await tryApi(() =>
+          suppliersApi.update(token, bizId, id, patch),
+        );
+        if (ok) return getState().suppliers.find((s) => s.id === id) ?? null;
+      }
+    }
 
     try {
       await businessService.updateSupplier(id, patch);
@@ -440,9 +557,17 @@ export const businessActions = {
     return getState().suppliers.find((s) => s.id === id) ?? null;
   },
 
-  async deleteSupplier(id: ID) {
+  async deleteSupplier(id: ID, token?: string) {
+    const sup = getState().suppliers.find((s) => s.id === id);
     setState({ suppliers: getState().suppliers.filter((s) => s.id !== id) });
     await flush();
+
+    if (token && sup?.businessId) {
+      const ok = await tryApi(() =>
+        suppliersApi.remove(token, sup.businessId, id),
+      );
+      if (ok) return;
+    }
 
     try {
       await businessService.deleteSupplier(id);

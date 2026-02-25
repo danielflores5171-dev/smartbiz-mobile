@@ -17,9 +17,26 @@ type RequestOptions = {
   query?: Record<string, string | number | boolean | undefined | null>;
 };
 
+// ✅ Log baseURL una sola vez (para diagnosticar)
+let loggedEnv = false;
+
 function buildUrl(path: string, query?: RequestOptions["query"]) {
-  const base = ENV.API_BASE_URL.replace(/\/+$/, "");
+  const rawBase = String(ENV.API_BASE_URL ?? "");
+  const base = rawBase.replace(/\/+$/, "");
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
+
+  if (!loggedEnv) {
+    loggedEnv = true;
+    console.log("[env] API_BASE_URL =", base);
+  }
+
+  if (!base) {
+    // Esto evita el “Invalid URL: /api/...”
+    throw new Error(
+      "API_BASE_URL vacío. Revisa EXPO_PUBLIC_API_BASE_URL en tu .env y reinicia con `npx expo start -c`.",
+    );
+  }
+
   const url = new URL(base + cleanPath);
 
   if (query) {
@@ -42,7 +59,7 @@ export async function apiRequest<T>(
   };
 
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  if (opts.businessId) headers["X-Business-Id"] = opts.businessId; // multi-tenant:contentReference[oaicite:4]{index=4}
+  if (opts.businessId) headers["X-Business-Id"] = String(opts.businessId);
 
   const res = await fetch(url, {
     method: opts.method ?? "GET",
@@ -50,10 +67,16 @@ export async function apiRequest<T>(
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
 
-  const json = (await res.json()) as ApiResponse<T>;
+  // Si el backend regresara HTML (redirect), evitamos crashear feo
+  const text = await res.text();
+  let json: ApiResponse<T>;
+  try {
+    json = JSON.parse(text) as ApiResponse<T>;
+  } catch {
+    throw new Error(`Respuesta no-JSON (${res.status}): ${text.slice(0, 120)}`);
+  }
 
   if (!json.ok) {
-    // Error estándar del contrato:contentReference[oaicite:5]{index=5}
     const msg = `${json.error.code}: ${json.error.message}`;
     throw new Error(msg);
   }

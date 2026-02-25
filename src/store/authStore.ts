@@ -10,6 +10,9 @@ import { inventoryActions } from "./inventoryStore";
 import { notificationActions } from "./notificationStore";
 import { salesActions } from "./salesStore";
 
+// ✅ NUEVO: token seguro (SecureStore)
+import { clearToken, getToken, saveToken } from "./sessionStore";
+
 type AuthState = {
   hydrated: boolean;
   token: string | null;
@@ -46,18 +49,9 @@ function setState(patch: Partial<AuthState>, opts?: { skipPersist?: boolean }) {
 function clearAllLocalMemory() {
   // ✅ stores “por usuario”: limpiar memoria para que no se pegue nada
   businessActions.clearLocalMemoryOnly();
-
-  // inventoryStore (tu archivo actual no traía clearLocalMemoryOnly)
-  // => por ahora usamos bootstrap reset: si ya agregaste clearLocalMemoryOnly en inventoryStore, cámbialo aquí.
   inventoryActions.clearLocalMemoryOnly?.();
-
-  // notificationStore (según tu archivo: clearLocal)
   notificationActions.clearLocal();
-
-  // salesStore (según tu archivo: clearLocal)
   salesActions.clearLocal();
-
-  // dashboard widgets (según tu archivo: clearLocalMemoryOnly)
   useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 }
 
@@ -65,8 +59,9 @@ async function persistSafe() {
   try {
     if (!getState().hydrated) return;
 
+    // ✅ Guardamos SOLO el user en AsyncStorage
+    // (token se guarda en SecureStore)
     const payload = {
-      token: getState().token,
       user: getState().user,
     };
 
@@ -77,42 +72,39 @@ async function persistSafe() {
 }
 
 async function hydrate() {
-  let raw: string | null = null;
+  // 1) Token desde SecureStore
+  let token: string | null = null;
+  try {
+    token = await getToken();
+  } catch {
+    token = null;
+  }
 
+  // 2) User desde AsyncStorage
+  let raw: string | null = null;
   try {
     raw = await AsyncStorage.getItem(STORAGE_KEY);
   } catch {
-    setState(
-      { hydrated: true, token: null, user: null },
-      { skipPersist: true },
-    );
-    return;
+    raw = null;
   }
 
   if (!raw) {
-    setState(
-      { hydrated: true, token: null, user: null },
-      { skipPersist: true },
-    );
+    setState({ hydrated: true, token, user: null }, { skipPersist: true });
     return;
   }
 
   try {
     const parsed = JSON.parse(raw) as any;
-
     setState(
       {
         hydrated: true,
-        token: parsed?.token ?? null,
+        token,
         user: parsed?.user ?? null,
       },
       { skipPersist: true },
     );
   } catch {
-    setState(
-      { hydrated: true, token: null, user: null },
-      { skipPersist: true },
-    );
+    setState({ hydrated: true, token, user: null }, { skipPersist: true });
   }
 }
 
@@ -127,34 +119,59 @@ export const authActions = {
     clearAllLocalMemory();
 
     const session = await authService.login(email, password);
+
+    // ✅ guarda token seguro
+    if (session.token) {
+      try {
+        await saveToken(session.token);
+      } catch {
+        // si falla SecureStore, igual seguimos (pero token no persistirá)
+      }
+    }
+
     setState({ token: session.token, user: session.user });
     return session;
   },
 
   async register(email: string, password: string, fullName?: string) {
-    // ✅ por consistencia: limpiamos antes
     clearAllLocalMemory();
 
     const session = await authService.register(email, password, fullName);
+
+    // ✅ guarda token seguro
+    if (session.token) {
+      try {
+        await saveToken(session.token);
+      } catch {
+        // ignore
+      }
+    }
+
     setState({ token: session.token, user: session.user });
     return session;
   },
 
   async logout() {
-    // ✅ limpia memoria para evitar “pegado” entre usuarios
     clearAllLocalMemory();
 
     // 1) limpia memoria inmediato (auth)
     setState({ token: null, user: null }, { skipPersist: true });
 
-    // 2) limpia storage (auth)
+    // 2) limpia AsyncStorage (solo user)
     try {
       await AsyncStorage.removeItem(STORAGE_KEY);
     } catch {
       // demo
     }
 
-    // 3) service
+    // 3) limpia SecureStore (token)
+    try {
+      await clearToken();
+    } catch {
+      // demo
+    }
+
+    // 4) service
     try {
       await authService.logout();
     } catch {

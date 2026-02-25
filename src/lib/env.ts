@@ -1,7 +1,17 @@
 // src/lib/env.ts
-export const env = {
-  API_BASE_URL: "", // vacío = modo demo
-};
+function requireEnv(name: string, value: string | undefined) {
+  if (!value) {
+    console.warn(`[env] Missing ${name}`);
+    return "";
+  }
+  return value;
+}
 
-//Alías para que apiClient.ts no truene
-export const ENV = env;
+export const ENV = {
+  API_BASE_URL: requireEnv(
+    "EXPO_PUBLIC_API_BASE_URL",
+    process.env.EXPO_PUBLIC_API_BASE_URL,
+  ),
+  SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
+  SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
+};
