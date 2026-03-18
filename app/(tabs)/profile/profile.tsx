@@ -9,6 +9,7 @@ import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
 
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import { profileActions, useProfileStore } from "@/src/store/profileStore";
 
@@ -16,9 +17,10 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const token = useAuthStore((s) => s.token);
   const me = useProfileStore((s) => s.profile);
-  const status = (me as any)?.status ?? "active";
   const loading = useProfileStore((s) => s.loading);
+  const status = (me as any)?.status ?? "active";
 
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
@@ -29,29 +31,24 @@ export default function ProfileScreen() {
 
   async function pickAvatar() {
     try {
-      const { status: perm } =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (perm !== "granted") {
-        Alert.alert(
-          "Permiso requerido",
-          "Activa el permiso a fotos para elegir tu avatar.",
-        );
-        return;
-      }
-
-      const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"] as any,
         quality: 1,
         allowsEditing: true,
         aspect: [1, 1],
       });
 
-      if (res.canceled) return;
+      if ((result as any).canceled) return;
 
-      const uri = res.assets?.[0]?.uri;
+      const uri = (result as any).assets?.[0]?.uri;
       if (!uri) return;
 
-      await profileActions.setAvatar(uri);
+      console.log(
+        "[ProfileScreen] set avatar tokenHead=",
+        String(token ?? "").slice(0, 10),
+      );
+
+      await profileActions.setAvatar(uri, token ?? undefined);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo elegir la imagen");
     }
@@ -64,11 +61,17 @@ export default function ProfileScreen() {
         text: "Quitar",
         style: "destructive",
         onPress: async () => {
-          await profileActions.setAvatar(undefined);
+          console.log(
+            "[ProfileScreen] remove avatar tokenHead=",
+            String(token ?? "").slice(0, 10),
+          );
+          await profileActions.setAvatar(undefined, token ?? undefined);
         },
       },
     ]);
   }
+
+  const avatarSrc = me.avatarUrl || me.avatarUri;
 
   return (
     <Screen scroll padded>
@@ -85,10 +88,92 @@ export default function ProfileScreen() {
           Perfil
         </Text>
         <Text style={{ color: colors.muted, marginTop: 6 }}>
-          Administra tu cuenta y preferencias (demo).
+          Administra tu cuenta y preferencias.
         </Text>
 
-        {/* Avatar centrado */}
+        <View
+          style={{
+            backgroundColor: colors.card2,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 18,
+            padding: 14,
+            marginTop: 14,
+            marginBottom: 6,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            Estado del módulo
+          </Text>
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colors.divider,
+              marginVertical: 12,
+            }}
+          />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#22c55e",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Conectado con web • falta autorización
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                La lectura del perfil, actualización de avatar, estructura de
+                cuenta y navegación a opciones ya están alineadas con la web;
+                falta autorización Bearer/cookies para operar totalmente sobre
+                backend real.
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ height: 12 }} />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#f59e0b",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Local/demo • se añadirá en próximas actualizaciones
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                Parte del flujo visual del perfil y algunos respaldos de estado
+                siguen funcionando localmente mientras se completa la
+                persistencia remota total en próximas actualizaciones.
+              </Text>
+            </View>
+          </View>
+        </View>
+
         <View style={{ alignItems: "center", marginTop: 18 }}>
           <View style={{ position: "relative" }}>
             <Pressable
@@ -105,9 +190,9 @@ export default function ProfileScreen() {
                 overflow: "hidden",
               }}
             >
-              {me.avatarUri ? (
+              {avatarSrc ? (
                 <Image
-                  source={{ uri: me.avatarUri }}
+                  source={{ uri: avatarSrc }}
                   style={{ width: "100%", height: "100%" }}
                   resizeMode="cover"
                 />
@@ -116,7 +201,6 @@ export default function ProfileScreen() {
               )}
             </Pressable>
 
-            {/* Lapicito */}
             <Pressable
               onPress={pickAvatar}
               hitSlop={12}
@@ -148,6 +232,7 @@ export default function ProfileScreen() {
           >
             {me.fullName}
           </Text>
+
           <Text style={{ color: colors.muted, marginTop: 4 }}>{me.email}</Text>
 
           <View
@@ -227,7 +312,7 @@ export default function ProfileScreen() {
             }}
           />
 
-          {me.avatarUri ? (
+          {avatarSrc ? (
             <AppButton
               title="QUITAR FOTO"
               onPress={removeAvatar}

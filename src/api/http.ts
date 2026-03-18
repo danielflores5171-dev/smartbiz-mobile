@@ -3,22 +3,52 @@ import { apiRequest } from "@/src/lib/apiClient";
 
 export type Token = string;
 
-export function get<T>(path: string, token?: Token) {
-  return apiRequest<T>(path, { method: "GET", token });
+type Opts = {
+  token?: Token;
+  businessId?: string | null;
+  query?: Record<string, string | number | boolean | undefined | null>;
+};
+
+export function get<T>(path: string, opts: Opts = {}) {
+  return apiRequest<T>(path, {
+    method: "GET",
+    token: opts.token,
+    businessId: opts.businessId ?? undefined,
+    query: opts.query,
+  });
 }
 
-export function post<T>(path: string, body: any, token?: Token) {
-  return apiRequest<T>(path, { method: "POST", body, token });
+export function post<T>(path: string, body: any, opts: Opts = {}) {
+  return apiRequest<T>(path, {
+    method: "POST",
+    token: opts.token,
+    businessId: opts.businessId ?? undefined,
+    body,
+  });
 }
 
-export function put<T>(path: string, body: any, token?: Token) {
-  return apiRequest<T>(path, { method: "PUT", body, token });
+export function put<T>(path: string, body: any, opts: Opts = {}) {
+  return apiRequest<T>(path, {
+    method: "PUT",
+    token: opts.token,
+    businessId: opts.businessId ?? undefined,
+    body,
+  });
 }
 
-export function patch<T>(path: string, body: any, token?: Token) {
-  return apiRequest<T>(path, { method: "PATCH", body, token });
+export function patch<T>(path: string, body: any, opts: Opts = {}) {
+  return apiRequest<T>(path, {
+    method: "PATCH",
+    token: opts.token,
+    businessId: opts.businessId ?? undefined,
+    body,
+  });
 }
 
-export function del<T>(path: string, token?: Token) {
-  return apiRequest<T>(path, { method: "DELETE", token });
+export function del<T>(path: string, opts: Opts = {}) {
+  return apiRequest<T>(path, {
+    method: "DELETE",
+    token: opts.token,
+    businessId: opts.businessId ?? undefined,
+  });
 }

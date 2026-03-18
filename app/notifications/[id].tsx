@@ -5,10 +5,12 @@ import React, { useEffect, useMemo } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
+import { useAuthStore } from "@/src/store/authStore";
 import {
   notificationActions,
   useNotificationStore,
 } from "@/src/store/notificationStore";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 
 function fmtFull(iso: string) {
@@ -29,6 +31,7 @@ function normalizeParamId(v: unknown): string | null {
 export default function NotificationDetailScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const token = useAuthStore((s) => s.token);
   const params = useLocalSearchParams();
   const id = normalizeParamId((params as any)?.id);
 
@@ -37,16 +40,14 @@ export default function NotificationDetailScreen() {
   );
 
   const title = useMemo(() => item?.title ?? "Notificación", [item?.title]);
-
-  // ✅ fija TS: saca el route a variable (queda string | undefined)
   const route = item?.meta?.route;
 
   useEffect(() => {
     if (!item) return;
     if (!item.read) {
-      void notificationActions.markRead(item.id, true);
+      void notificationActions.markRead(item.id, true, token ?? undefined);
     }
-  }, [item?.id, item?.read]);
+  }, [item?.id, item?.read, token]);
 
   if (!id || !item) {
     return (
@@ -123,7 +124,10 @@ export default function NotificationDetailScreen() {
                   text: "Eliminar",
                   style: "destructive",
                   onPress: async () => {
-                    await notificationActions.remove(item.id);
+                    await notificationActions.remove(
+                      item.id,
+                      token ?? undefined,
+                    );
                     router.back();
                   },
                 },
@@ -147,6 +151,11 @@ export default function NotificationDetailScreen() {
             />
           </Pressable>
         </View>
+
+        <ModuleStatusCard
+          connectedText="Lectura del detalle, marcado automático como leído y borrado individual ya están alineados con web; falta autorización Bearer/cookies para reflejarse contra backend real."
+          demoText="Persistencia local del detalle y navegación de respaldo al módulo relacionado mientras backend no autoriza."
+        />
 
         <Text style={{ color: colors.muted, marginTop: 8 }}>
           {fmtFull(item.createdAt)}

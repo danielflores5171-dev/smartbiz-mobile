@@ -1,17 +1,19 @@
+// app/(tabs)/reports/sales-period.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import AppInput from "@/src/ui/AppInput";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
+import { reportsActions, useReportsStore } from "@/src/store/reportsStore";
 import { useSalesStore } from "@/src/store/salesStore";
 import type { Sale } from "@/src/types/sales";
-
+import AppButton from "@/src/ui/AppButton";
+import AppInput from "@/src/ui/AppInput";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
 import LineAreaChartCard, {
   type LinePoint,
 } from "@/src/ui/charts/LineAreaChartCard";
@@ -76,10 +78,13 @@ export default function SalesPeriodReport() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const token = useAuthStore((s) => s.token);
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
   );
+
+  const apiReport = useReportsStore((s) => s.salesReport);
 
   const allSales = useSalesStore((s) => {
     if (!activeBusinessId) return [] as Sale[];
@@ -111,7 +116,21 @@ export default function SalesPeriodReport() {
     return { ok: true as const, from, toEnd };
   }, [fromStr, toStr]);
 
-  const salesInRange = useMemo(() => {
+  useEffect(() => {
+    if (!activeBusinessId || !range.ok) return;
+    void reportsActions.fetchSalesReport(activeBusinessId, token, {
+      from: range.from.toISOString(),
+      to: range.toEnd.toISOString(),
+    });
+  }, [
+    activeBusinessId,
+    token,
+    range.ok,
+    range.ok ? range.from.toISOString() : "",
+    range.ok ? range.toEnd.toISOString() : "",
+  ]);
+
+  const salesInRangeLocal = useMemo(() => {
     if (!range.ok) return allSales;
 
     const min = range.from.getTime();
@@ -123,33 +142,61 @@ export default function SalesPeriodReport() {
     });
   }, [allSales, range]);
 
-  const totals = useMemo(() => {
+  const totalsLocal = useMemo(() => {
     const subtotal = round2(
-      salesInRange.reduce((acc, s) => acc + Number(s.subtotal ?? 0), 0),
+      salesInRangeLocal.reduce((acc, s) => acc + Number(s.subtotal ?? 0), 0),
     );
     const discount = round2(
-      salesInRange.reduce((acc, s) => acc + Number(s.discount ?? 0), 0),
+      salesInRangeLocal.reduce((acc, s) => acc + Number(s.discount ?? 0), 0),
     );
     const base = round2(
-      salesInRange.reduce((acc, s) => acc + Number(s.taxableBase ?? 0), 0),
+      salesInRangeLocal.reduce((acc, s) => acc + Number(s.taxableBase ?? 0), 0),
     );
     const tax = round2(
-      salesInRange.reduce((acc, s) => acc + Number(s.taxAmount ?? 0), 0),
+      salesInRangeLocal.reduce((acc, s) => acc + Number(s.taxAmount ?? 0), 0),
     );
     const total = round2(
-      salesInRange.reduce((acc, s) => acc + Number(s.total ?? 0), 0),
+      salesInRangeLocal.reduce((acc, s) => acc + Number(s.total ?? 0), 0),
     );
     return { subtotal, discount, base, tax, total };
-  }, [salesInRange]);
+  }, [salesInRangeLocal]);
+
+  const totalsApi = useMemo(() => {
+    const k = apiReport?.kpis;
+    if (!k) return null;
+    return {
+      subtotal: Number(k.total_sales ?? 0),
+      discount: Number(k.total_discount ?? 0),
+      base: 0,
+      tax: Number(k.total_tax ?? 0),
+      total: Number(k.total_sales ?? 0),
+    };
+  }, [apiReport]);
+
+  const totals = totalsApi ?? totalsLocal;
 
   const lastSales = useMemo(() => {
-    return salesInRange
+    return salesInRangeLocal
       .slice()
       .sort((a, b) => safeTime(b.createdAt) - safeTime(a.createdAt))
       .slice(0, 8);
-  }, [salesInRange]);
+  }, [salesInRangeLocal]);
 
   const spSeries = useMemo(() => {
+    if (apiReport?.series_daily?.length) {
+      const totalLine: LinePoint[] = apiReport.series_daily.map((r: any) => ({
+        x: String(r.day).slice(5).replace("-", "/"),
+        y: Number(r.total ?? 0),
+      }));
+
+      const countBars: BarPoint[] = apiReport.series_daily.map((r: any) => ({
+        x: String(r.day).slice(5).replace("-", "/"),
+        y: Number(r.orders ?? 0),
+      }));
+
+      return { totalLine, countBars };
+    }
+
     if (!range.ok)
       return { totalLine: [] as LinePoint[], countBars: [] as BarPoint[] };
 
@@ -158,7 +205,7 @@ export default function SalesPeriodReport() {
 
     const map = new Map<number, { total: number; count: number }>();
 
-    for (const s of salesInRange) {
+    for (const s of salesInRangeLocal) {
       const day = startOfDayMs(new Date(String(s.createdAt ?? "")));
       const prev = map.get(day) ?? { total: 0, count: 0 };
       prev.total = round2(prev.total + Number(s.total ?? 0));
@@ -186,7 +233,7 @@ export default function SalesPeriodReport() {
         : pointsCount;
 
     return { totalLine, countBars };
-  }, [range, salesInRange]);
+  }, [apiReport, range, salesInRangeLocal]);
 
   if (!activeBiz || !activeBusinessId) {
     return (
@@ -240,10 +287,15 @@ export default function SalesPeriodReport() {
               Ventas por periodo
             </Text>
             <Text style={{ color: colors.muted, marginTop: 6 }}>
-              {activeBiz.name} · Filtra por fechas (demo).
+              {activeBiz.name} · Si API falla, usa ventas locales.
             </Text>
           </View>
         </View>
+
+        <ModuleStatusCard
+          connectedText="Consulta por rango, resumen, series diarias y cruce con ventas del negocio ya están alineados con web; falta autorización Bearer/cookies para usar datos reales del backend."
+          demoText="Validación local del rango, series locales y resumen calculado desde ventas locales como respaldo mientras backend no autoriza."
+        />
 
         <View style={{ marginTop: 12, gap: 10 }}>
           <AppInput
@@ -300,7 +352,7 @@ export default function SalesPeriodReport() {
           <Text style={{ color: colors.muted }}>
             Ventas:{" "}
             <Text style={{ color: colors.text, fontWeight: "900" }}>
-              {salesInRange.length}
+              {Number(apiReport?.kpis?.orders ?? 0) || salesInRangeLocal.length}
             </Text>
           </Text>
           <Text style={{ color: colors.muted }}>
@@ -338,7 +390,7 @@ export default function SalesPeriodReport() {
 
       <LineAreaChartCard
         title="Tendencia: Total vendido por día"
-        subtitle="Área + línea (últimos 14 días del rango)."
+        subtitle="API si autoriza; si no, local."
         icon="pulse-outline"
         data={spSeries.totalLine}
         valueFmt={(n: number) => `$${n.toFixed(2)}`}
@@ -347,7 +399,7 @@ export default function SalesPeriodReport() {
 
       <MiniBarsChartCard
         title="Volumen: Ventas por día (conteo)"
-        subtitle="Barras compactas (últimos 14 días del rango)."
+        subtitle="API si autoriza; si no, local."
         icon="podium-outline"
         data={spSeries.countBars}
         valueFmt={(n: number) => `${n}`}

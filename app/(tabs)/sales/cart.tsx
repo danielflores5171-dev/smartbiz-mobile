@@ -32,15 +32,13 @@ export default function CartScreen() {
   const { colors, isDark } = useTheme();
 
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
-  const cart = useSalesStore((s) => s.cart ?? []);
-  const discount = useSalesStore((s) => s.discount ?? 0);
+  const cart = useSalesStore((s) => s.cart);
+  const discount = useSalesStore((s) => s.discount);
 
-  // ✅ inventario para resolver imageUri por productId
-  const allProducts = useInventoryStore((s) => s.products ?? []);
+  const allProducts = useInventoryStore((s) => s.products);
 
   const [discountStr, setDiscountStr] = useState(String(discount || 0));
 
-  // ✅ index rápido: productId -> imageUri (solo del negocio activo)
   const imageByProductId = useMemo(() => {
     const map = new Map<string, string | null>();
     if (!activeBusinessId) return map;
@@ -119,6 +117,88 @@ export default function CartScreen() {
 
         <View
           style={{
+            backgroundColor: colors.card2,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 18,
+            padding: 14,
+            marginTop: 14,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            Estado del módulo
+          </Text>
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colors.divider,
+              marginVertical: 12,
+            }}
+          />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#22c55e",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Conectado con web • falta autorización
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                La estructura del carrito, descuento, totales y flujo hacia
+                checkout ya coinciden con la web; falta autorización
+                Bearer/cookies para que el estado del carrito y su proceso
+                operen completamente contra backend real.
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ height: 12 }} />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#f59e0b",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Local/demo • se añadirá en próximas actualizaciones
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                El manejo de cantidades, vaciado del carrito, descuento y render
+                local de productos siguen funcionando como respaldo demo/local y
+                se reforzarán en futuras actualizaciones.
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={{
             height: 1,
             backgroundColor: colors.divider,
             marginVertical: 16,
@@ -161,7 +241,6 @@ export default function CartScreen() {
                         gap: 10,
                       }}
                     >
-                      {/* ✅ Miniatura */}
                       <View
                         style={{
                           width: 54,
@@ -209,9 +288,13 @@ export default function CartScreen() {
                       </View>
 
                       <Pressable
-                        onPress={() =>
-                          salesActions.removeFromCart(it.productId as any)
-                        }
+                        onPress={() => {
+                          console.log(
+                            "[CartScreen] removeFromCart productId=",
+                            it.productId,
+                          );
+                          salesActions.removeFromCart(it.productId as any);
+                        }}
                         style={{
                           width: 38,
                           height: 38,
@@ -240,7 +323,13 @@ export default function CartScreen() {
                       }}
                     >
                       <Pressable
-                        onPress={() => salesActions.dec(it.productId as any)}
+                        onPress={() => {
+                          console.log(
+                            "[CartScreen] dec productId=",
+                            it.productId,
+                          );
+                          salesActions.dec(it.productId as any);
+                        }}
                         style={{
                           width: 44,
                           height: 44,
@@ -274,7 +363,13 @@ export default function CartScreen() {
                       </View>
 
                       <Pressable
-                        onPress={() => salesActions.inc(it.productId as any)}
+                        onPress={() => {
+                          console.log(
+                            "[CartScreen] inc productId=",
+                            it.productId,
+                          );
+                          salesActions.inc(it.productId as any);
+                        }}
                         style={{
                           width: 44,
                           height: 44,
@@ -351,7 +446,10 @@ export default function CartScreen() {
                     {
                       text: "Vaciar",
                       style: "destructive",
-                      onPress: () => salesActions.clearCart(),
+                      onPress: () => {
+                        console.log("[CartScreen] clearCart");
+                        salesActions.clearCart();
+                      },
                     },
                   ])
                 }

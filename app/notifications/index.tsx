@@ -1,14 +1,15 @@
-// app/(tabs)/notifications/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
+import { useAuthStore } from "@/src/store/authStore";
 import {
   notificationActions,
   useNotificationStore,
 } from "@/src/store/notificationStore";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 
 function fmtAgo(iso: string) {
@@ -41,6 +42,7 @@ type Filter = "all" | "unread";
 export default function NotificationsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const token = useAuthStore((s) => s.token);
 
   const items = useNotificationStore((s) => s.items);
   const loading = useNotificationStore((s) => s.loading);
@@ -89,7 +91,6 @@ export default function NotificationsScreen() {
   return (
     <Screen scroll padded>
       <View style={cardStyle}>
-        {/* Header */}
         <View
           style={{
             flexDirection: "row",
@@ -113,7 +114,6 @@ export default function NotificationsScreen() {
                 Notificaciones
               </Text>
 
-              {/* ✅ VOLVER */}
               <Pressable
                 onPress={() => {
                   if (router.canGoBack()) router.back();
@@ -139,104 +139,106 @@ export default function NotificationsScreen() {
                 ? `Tienes ${unreadCount} sin leer.`
                 : "No tienes pendientes."}
             </Text>
-
-            {/* Filtro */}
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-              <Pressable
-                onPress={() => setFilter("all")}
-                style={{
-                  ...pillBase,
-                  backgroundColor:
-                    filter === "all" ? colors.pillBgActive : colors.card2,
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontWeight: "900",
-                    fontSize: 12,
-                  }}
-                >
-                  TODAS
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => setFilter("unread")}
-                style={{
-                  ...pillBase,
-                  backgroundColor:
-                    filter === "unread" ? colors.pillBgActive : colors.card2,
-                }}
-              >
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontWeight: "900",
-                    fontSize: 12,
-                  }}
-                >
-                  SIN LEER
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Acciones */}
-          <View style={{ gap: 10, alignItems: "flex-end" }}>
-            <Pressable
-              onPress={() => {
-                if (items.length === 0) return;
-                if (unreadCount === 0) return;
-                void notificationActions.markAllRead();
-              }}
-              style={{
-                ...actionBtn,
-                opacity: items.length > 0 && unreadCount > 0 ? 1 : 0.5,
-              }}
-            >
-              <Text
-                style={{ color: colors.text, fontWeight: "900", fontSize: 12 }}
-              >
-                MARCAR TODO
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => {
-                if (items.length === 0) return;
-                Alert.alert(
-                  "Eliminar todas",
-                  "¿Seguro que deseas eliminar TODAS tus notificaciones? (demo)",
-                  [
-                    { text: "Cancelar", style: "cancel" },
-                    {
-                      text: "Eliminar todas",
-                      style: "destructive",
-                      onPress: () => void notificationActions.clearAll(),
-                    },
-                  ],
-                );
-              }}
-              style={{
-                ...actionBtn,
-                opacity: items.length > 0 ? 1 : 0.5,
-              }}
-            >
-              <Text
-                style={{
-                  color: "rgba(248,113,113,0.95)",
-                  fontWeight: "900",
-                  fontSize: 12,
-                }}
-              >
-                ELIMINAR TODAS
-              </Text>
-            </Pressable>
           </View>
         </View>
 
-        {/* Error */}
+        <ModuleStatusCard
+          connectedText="Listado de notificaciones, lectura individual, marcar como leída y borrado individual ya coinciden con la web; falta autorización Bearer/cookies para operar con backend real."
+          demoText="Limpieza total local, fallback de lectura/borrado y respaldo de notificaciones demo mientras backend no autoriza o no existe endpoint completo."
+        />
+
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+          <Pressable
+            onPress={() => setFilter("all")}
+            style={{
+              ...pillBase,
+              backgroundColor:
+                filter === "all" ? colors.pillBgActive : colors.card2,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 12,
+              }}
+            >
+              TODAS
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setFilter("unread")}
+            style={{
+              ...pillBase,
+              backgroundColor:
+                filter === "unread" ? colors.pillBgActive : colors.card2,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "900",
+                fontSize: 12,
+              }}
+            >
+              SIN LEER
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={{ marginTop: 12, gap: 10, alignItems: "flex-end" }}>
+          <Pressable
+            onPress={() => {
+              if (items.length === 0) return;
+              if (unreadCount === 0) return;
+              void notificationActions.markAllRead(token ?? undefined);
+            }}
+            style={{
+              ...actionBtn,
+              opacity: items.length > 0 && unreadCount > 0 ? 1 : 0.5,
+            }}
+          >
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 12 }}
+            >
+              MARCAR TODO
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              if (items.length === 0) return;
+              Alert.alert(
+                "Eliminar todas",
+                "Esto limpiará las notificaciones locales de la app. La web no tiene endpoint para borrar todas todavía.",
+                [
+                  { text: "Cancelar", style: "cancel" },
+                  {
+                    text: "Limpiar local",
+                    style: "destructive",
+                    onPress: () => void notificationActions.clearAll(),
+                  },
+                ],
+              );
+            }}
+            style={{
+              ...actionBtn,
+              opacity: items.length > 0 ? 1 : 0.5,
+            }}
+          >
+            <Text
+              style={{
+                color: "rgba(248,113,113,0.95)",
+                fontWeight: "900",
+                fontSize: 12,
+              }}
+            >
+              ELIMINAR TODAS
+            </Text>
+          </Pressable>
+        </View>
+
         {error ? (
           <View
             style={{
@@ -255,7 +257,9 @@ export default function NotificationsScreen() {
             <Text style={{ color: colors.muted, marginTop: 4 }}>{error}</Text>
 
             <Pressable
-              onPress={() => void notificationActions.refresh()}
+              onPress={() =>
+                void notificationActions.refresh(token ?? undefined)
+              }
               style={{
                 marginTop: 10,
                 alignSelf: "flex-start",
@@ -272,7 +276,6 @@ export default function NotificationsScreen() {
           </View>
         ) : null}
 
-        {/* Lista */}
         <View style={{ marginTop: 14 }}>
           {items.length === 0 && !loading ? (
             <View
@@ -306,7 +309,9 @@ export default function NotificationsScreen() {
               </Text>
 
               <Pressable
-                onPress={() => void notificationActions.refresh()}
+                onPress={() =>
+                  void notificationActions.refresh(token ?? undefined)
+                }
                 style={{
                   marginTop: 12,
                   paddingHorizontal: 14,
@@ -375,7 +380,7 @@ export default function NotificationsScreen() {
                       <Pressable
                         key={n.id}
                         onPress={() =>
-                          router.push(`/(tabs)/notifications/${n.id}` as any)
+                          router.push(`/notifications/${n.id}` as any)
                         }
                         style={{
                           padding: 12,
@@ -501,6 +506,7 @@ export default function NotificationsScreen() {
                                       void notificationActions.markRead(
                                         n.id,
                                         true,
+                                        token ?? undefined,
                                       );
                                     }}
                                   >
@@ -530,6 +536,7 @@ export default function NotificationsScreen() {
                                           onPress: () =>
                                             void notificationActions.remove(
                                               n.id,
+                                              token ?? undefined,
                                             ),
                                         },
                                       ],

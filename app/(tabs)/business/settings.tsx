@@ -114,6 +114,88 @@ export default function BusinessSettingsScreen() {
 
         <View
           style={{
+            backgroundColor: colors.card2,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 18,
+            padding: 14,
+            marginTop: 14,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            Estado del módulo
+          </Text>
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colors.divider,
+              marginVertical: 12,
+            }}
+          />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#22c55e",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Conectado con web • falta autorización
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                La navegación a edición, empleados, proveedores y la estructura
+                de configuración del negocio activo ya coinciden con la web;
+                falta autorización Bearer/cookies para operar completamente con
+                backend.
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ height: 12 }} />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#f59e0b",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Local/demo • se añadirá en próximas actualizaciones
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                El cambio local de negocio activo y la eliminación demo siguen
+                funcionando como respaldo mientras se completa la persistencia
+                remota y el soporte backend final en próximas actualizaciones.
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={{
             height: 1,
             backgroundColor: colors.divider,
             marginVertical: 16,

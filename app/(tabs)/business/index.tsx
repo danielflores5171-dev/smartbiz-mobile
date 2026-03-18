@@ -2,6 +2,7 @@ import { useTheme } from "@/context/theme-context";
 import { useAuthStore } from "@/src/store/authStore";
 import { businessActions, useBusinessStore } from "@/src/store/businessStore";
 import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 import { useRouter } from "expo-router";
 import React, { useEffect } from "react";
@@ -12,27 +13,36 @@ export default function BusinessIndex() {
   const { colors } = useTheme();
 
   const authUser = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
 
   const businesses = useBusinessStore((s) => s.businesses);
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const loading = useBusinessStore((s) => s.loading);
   const error = useBusinessStore((s) => s.error);
 
-  // para evitar bootstraps repetidos / loops:
   const bizHydrated = useBusinessStore((s) => s.hydrated);
   const bizUserId = useBusinessStore((s) => s.userId);
 
   const hasActive = !!activeBusinessId;
 
   useEffect(() => {
-    // ✅ bootstrap por usuario (clave para multiusuario)
     if (!authUser?.id) return;
 
-    // ✅ solo si falta hidratar o cambió de usuario
     if (!bizHydrated || bizUserId !== authUser.id) {
-      void businessActions.bootstrap(authUser.id);
+      void businessActions.bootstrap(authUser.id, token ?? undefined);
     }
-  }, [authUser?.id, bizHydrated, bizUserId]);
+  }, [authUser?.id, bizHydrated, bizUserId, token]);
+
+  console.log(
+    "[BusinessIndex] mount userId=",
+    authUser?.id,
+    "tokenHead=",
+    String(token ?? "").slice(0, 10),
+    "bizHydrated=",
+    bizHydrated,
+    "bizUserId=",
+    bizUserId,
+  );
 
   return (
     <Screen scroll padded>
@@ -45,6 +55,11 @@ export default function BusinessIndex() {
         </Text>
       </View>
 
+      <ModuleStatusCard
+        connectedText="Carga de negocios, activación del negocio actual, estructura de empleados y proveedores, y navegación de gestión ya coinciden con la web; falta autorización Bearer/cookies para consumir backend real."
+        demoText="Respaldo local de negocios, persistencia demo, y parte de la experiencia de gestión cuando backend no autoriza o todavía faltan ajustes del lado web."
+      />
+
       {error ? (
         <View
           style={{
@@ -54,6 +69,7 @@ export default function BusinessIndex() {
             padding: 12,
             borderRadius: 14,
             marginBottom: 12,
+            marginTop: 12,
           }}
         >
           <Text style={{ color: colors.text, fontWeight: "800" }}>{error}</Text>
@@ -67,6 +83,7 @@ export default function BusinessIndex() {
           borderColor: colors.border,
           borderRadius: 22,
           padding: 16,
+          marginTop: 12,
         }}
       >
         <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
@@ -76,7 +93,6 @@ export default function BusinessIndex() {
           Toca uno para activarlo. Usa “Editar” para modificar.
         </Text>
 
-        {/* ✅ Empty state */}
         {!loading && businesses.length === 0 ? (
           <View
             style={{
@@ -105,7 +121,9 @@ export default function BusinessIndex() {
             return (
               <Pressable
                 key={b.id}
-                onPress={() => businessActions.setActiveBusiness(b.id)}
+                onPress={() =>
+                  businessActions.setActiveBusiness(b.id, token ?? undefined)
+                }
                 style={{
                   borderRadius: 18,
                   padding: 14,
@@ -139,7 +157,12 @@ export default function BusinessIndex() {
                     <AppButton
                       title={isActive ? "ACTIVO" : "ACTIVAR"}
                       variant="primary"
-                      onPress={() => businessActions.setActiveBusiness(b.id)}
+                      onPress={() =>
+                        businessActions.setActiveBusiness(
+                          b.id,
+                          token ?? undefined,
+                        )
+                      }
                     />
                   </View>
 

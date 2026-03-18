@@ -1,15 +1,18 @@
+// app/(tabs)/reports/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import { useInventoryStore } from "@/src/store/inventoryStore";
+import { reportsActions, useReportsStore } from "@/src/store/reportsStore";
 import { useSalesStore } from "@/src/store/salesStore";
+import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
 
 function daysAgoISO(days: number) {
   const d = new Date();
@@ -107,12 +110,27 @@ export default function ReportsIndex() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const token = useAuthStore((s) => s.token);
+  const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
   );
 
   const productsAll = useInventoryStore((s) => s.products ?? []);
   const salesByBusiness = useSalesStore((s) => s.salesByBusiness ?? {});
+
+  const summary = useReportsStore((s) => s.statisticsSummary);
+  const error = useReportsStore((s) => s.error);
+
+  useEffect(() => {
+    if (!activeBusinessId) return;
+
+    void reportsActions.fetchStatisticsSummary(
+      activeBusinessId,
+      token,
+      "month",
+    );
+  }, [activeBusinessId, token]);
 
   const products = useMemo(() => {
     if (!activeBiz) return [];
@@ -130,7 +148,7 @@ export default function ReportsIndex() {
     ).length;
   }, [products]);
 
-  const todaySalesTotal = useMemo(() => {
+  const todaySalesTotalLocal = useMemo(() => {
     const now = new Date();
     return sales
       .filter((s: any) => {
@@ -140,7 +158,7 @@ export default function ReportsIndex() {
       .reduce((acc: number, s: any) => acc + Number(s.total ?? 0), 0);
   }, [sales]);
 
-  const last7DaysTotal = useMemo(() => {
+  const last7DaysTotalLocal = useMemo(() => {
     const min = new Date(daysAgoISO(7)).getTime();
     return sales
       .filter((s: any) => {
@@ -156,10 +174,23 @@ export default function ReportsIndex() {
       (s: any) => (safeDate(s.createdAt)?.getTime() ?? 0) >= min,
     );
     if (last7.length === 0) return 0;
+
     const avgPerDay =
       last7.reduce((a: number, s: any) => a + Number(s.total ?? 0), 0) / 7;
+
     return Math.max(0, avgPerDay * 7);
   }, [sales]);
+
+  const todaySalesTotal =
+    Number(summary?.kpis?.total_sales ?? 0) > 0 &&
+    summary?.range?.preset === "today"
+      ? Number(summary.kpis.total_sales)
+      : todaySalesTotalLocal;
+
+  const monthTotalFromApi =
+    Number(summary?.kpis?.total_sales ?? 0) > 0
+      ? Number(summary.kpis.total_sales)
+      : last7DaysTotalLocal;
 
   if (!activeBiz) {
     return (
@@ -184,8 +215,29 @@ export default function ReportsIndex() {
         Reportes
       </Text>
       <Text style={{ color: colors.muted, marginTop: 6 }}>
-        Resumen, análisis y exportación (demo sin backend).
+        Resumen, análisis y exportación. Si backend no autoriza, usa fallback
+        local/demo.
       </Text>
+
+      <ModuleStatusCard
+        connectedText="Resumen estadístico, reportes de ventas, inventario y exportación CSV ya coinciden con la web; falta autorización Bearer/cookies para consumir backend real."
+        demoText="Predicción simple local, métricas de respaldo, exportaciones demo/TXT y parte del comportamiento de reportes mientras backend no autoriza."
+      />
+
+      {error ? (
+        <View
+          style={{
+            marginTop: 12,
+            padding: 12,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.card,
+          }}
+        >
+          <Text style={{ color: colors.muted }}>{error}</Text>
+        </View>
+      ) : null}
 
       <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
         <StatCard
@@ -196,9 +248,9 @@ export default function ReportsIndex() {
           onPress={() => router.push("/(tabs)/reports/sales" as any)}
         />
         <StatCard
-          title="Últimos 7 días"
-          value={`$${last7DaysTotal.toFixed(2)}`}
-          subtitle="Total semanal"
+          title="Periodo"
+          value={`$${monthTotalFromApi.toFixed(2)}`}
+          subtitle="Resumen desde API o local"
           icon="stats-chart-outline"
           onPress={() => router.push("/(tabs)/reports/sales-period" as any)}
         />
@@ -235,7 +287,8 @@ export default function ReportsIndex() {
           Asistente (IA demo)
         </Text>
         <Text style={{ color: colors.muted, marginTop: 6 }}>
-          Predicción simple usando promedio de ventas de los últimos 7 días.
+          Predicción simple usando promedio local de ventas de los últimos 7
+          días.
         </Text>
 
         <View
@@ -259,7 +312,7 @@ export default function ReportsIndex() {
           <Text style={{ color: colors.text, fontWeight: "900" }}>
             {lowStockCount}
           </Text>{" "}
-          productos en bajo stock, revisa reposición antes del fin de semana.
+          productos en bajo stock, revisa reposición.
           {"\n"}• Usa “Top productos” para identificar los más vendidos.
         </Text>
 
@@ -272,11 +325,6 @@ export default function ReportsIndex() {
           <AppButton
             title="EXPORTAR REPORTES"
             onPress={() => router.push("/(tabs)/reports/export" as any)}
-            variant="secondary"
-          />
-          <AppButton
-            title="SINCRONIZACIÓN"
-            onPress={() => router.push("/(tabs)/reports/sync" as any)}
             variant="secondary"
           />
         </View>

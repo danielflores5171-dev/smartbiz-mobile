@@ -1,17 +1,19 @@
+// app/(tabs)/reports/inventory.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import {
   inventoryActions,
   useInventoryStore,
 } from "@/src/store/inventoryStore";
+import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -92,6 +94,9 @@ export default function ReportsInventory() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const token = useAuthStore((s) => s.token);
+
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
@@ -104,9 +109,12 @@ export default function ReportsInventory() {
   const [days, setDays] = useState<Days>(30);
 
   useEffect(() => {
-    void inventoryActions.bootstrap();
-    if (activeBusinessId) void inventoryActions.loadProducts(activeBusinessId);
-  }, [activeBusinessId]);
+    if (!userId) return;
+    void inventoryActions.bootstrap(userId);
+    if (activeBusinessId) {
+      void inventoryActions.loadProducts(activeBusinessId, token);
+    }
+  }, [userId, activeBusinessId, token]);
 
   const cutoff = useMemo(() => Date.now() - days * 24 * 60 * 60 * 1000, [days]);
 
@@ -140,8 +148,9 @@ export default function ReportsInventory() {
       .sort((a: any, b: any) => safeTime(b.createdAt) - safeTime(a.createdAt));
 
     for (const a of relevant) {
-      if (!map.has(String(a.productId)))
+      if (!map.has(String(a.productId))) {
         map.set(String(a.productId), String(a.createdAt));
+      }
     }
     return map;
   }, [allAdjustments, activeBusinessId]);
@@ -249,6 +258,11 @@ export default function ReportsInventory() {
           </Text>
         </View>
       </View>
+
+      <ModuleStatusCard
+        connectedText="Consulta de productos, movimientos y estructura del reporte de inventario ya coinciden con web; falta autorización Bearer/cookies y cierre de algunos ajustes backend."
+        demoText="Cálculo de bajo stock, sin movimiento, valor de inventario y movimientos del periodo sigue funcionando en local/demo y se ampliará en próximas actualizaciones."
+      />
 
       <View
         style={{

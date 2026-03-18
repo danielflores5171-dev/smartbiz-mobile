@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo } from "react";
-import { Text, View } from "react-native";
+import { Alert, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
+import { useAuthStore } from "@/src/store/authStore";
 import { businessActions, useBusinessStore } from "@/src/store/businessStore";
 import AppButton from "@/src/ui/AppButton";
 import Screen from "@/src/ui/Screen";
@@ -12,11 +13,34 @@ export default function SupplierDetail() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
 
+  const token = useAuthStore((s) => s.token);
   const suppliers = useBusinessStore((s) => s.suppliers);
   const supplier = useMemo(
     () => suppliers.find((s) => s.id === id) ?? null,
     [suppliers, id],
   );
+
+  async function onDelete() {
+    if (!supplier) return;
+
+    console.log(
+      "[SupplierDetail] delete supplierId=",
+      supplier.id,
+      "businessId=",
+      supplier.businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
+    try {
+      await businessActions.deleteSupplier(supplier.id, token ?? undefined);
+      console.log("[SupplierDetail] delete OK");
+      router.replace("/business/suppliers" as any);
+    } catch (e: any) {
+      console.log("[SupplierDetail] delete FAIL:", String(e));
+      Alert.alert("No se pudo eliminar", e?.message ?? "Error desconocido");
+    }
+  }
 
   if (!supplier) {
     return (
@@ -83,10 +107,22 @@ export default function SupplierDetail() {
           />
           <AppButton
             title="ELIMINAR"
-            onPress={async () => {
-              await businessActions.deleteSupplier(supplier.id);
-              router.replace("/business/suppliers" as any);
-            }}
+            onPress={() =>
+              Alert.alert(
+                "Eliminar proveedor",
+                "¿Seguro que quieres eliminar este proveedor?",
+                [
+                  { text: "Cancelar", style: "cancel" },
+                  {
+                    text: "Eliminar",
+                    style: "destructive",
+                    onPress: () => {
+                      void onDelete();
+                    },
+                  },
+                ],
+              )
+            }
             variant="secondary"
             style={{
               backgroundColor: "rgba(239,68,68,0.18)",

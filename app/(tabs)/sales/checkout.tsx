@@ -7,8 +7,10 @@ import { Alert, Image, Text, View } from "react-native";
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import { useInventoryStore } from "@/src/store/inventoryStore";
 import { salesActions, useSalesStore } from "@/src/store/salesStore";
@@ -26,19 +28,19 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { colors } = useTheme();
 
-  const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
-  const cart = useSalesStore((s) => s.cart ?? []);
-  const discount = useSalesStore((s) => s.discount ?? 0);
+  const token = useAuthStore((s) => s.token);
 
-  // ✅ para miniaturas por productId
-  const allProducts = useInventoryStore((s) => s.products ?? []);
+  const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
+  const cart = useSalesStore((s) => s.cart);
+  const discount = useSalesStore((s) => s.discount);
+
+  const allProducts = useInventoryStore((s) => s.products);
   const productById = useMemo(() => {
     const map = new Map<string, any>();
     for (const p of allProducts) map.set(String(p.id), p);
     return map;
   }, [allProducts]);
 
-  // ✅ SOLO EFECTIVO
   const method = "cash" as const;
 
   const [paidStr, setPaidStr] = useState("");
@@ -70,8 +72,7 @@ export default function CheckoutScreen() {
   const total = useMemo(() => round2(base + iva), [base, iva]);
 
   const paidCash = useMemo(() => parseMoney(paidStr), [paidStr]);
-
-  const paid = paidCash; // siempre cash
+  const paid = paidCash;
   const change = useMemo(
     () => round2(Math.max(0, paid - total)),
     [paid, total],
@@ -134,7 +135,7 @@ export default function CheckoutScreen() {
               Cobrar
             </Text>
             <Text style={{ color: colors.muted, marginTop: 6 }}>
-              IVA {Math.round(TAX_RATE * 100)}% aplicado (demo).
+              IVA {Math.round(TAX_RATE * 100)}% aplicado.
             </Text>
           </View>
 
@@ -146,6 +147,11 @@ export default function CheckoutScreen() {
           />
         </View>
 
+        <ModuleStatusCard
+          connectedText="Checkout, cálculo de totales, registro final de la venta y navegación al ticket ya están preparados para web; falta autorización Bearer/cookies para cerrar la venta contra backend real."
+          demoText="Cálculo local de cobro, validación del pago en efectivo y parte del flujo de confirmación siguen operando como respaldo local/demo."
+        />
+
         <View
           style={{
             height: 1,
@@ -154,7 +160,6 @@ export default function CheckoutScreen() {
           }}
         />
 
-        {/* ✅ RESUMEN DEL CARRITO CON MINIATURAS */}
         <Text style={{ color: colors.text, fontWeight: "900" }}>
           Productos ({cart.length})
         </Text>
@@ -240,7 +245,6 @@ export default function CheckoutScreen() {
           }}
         />
 
-        {/* ✅ SOLO EFECTIVO (sin opciones) */}
         <Text style={{ color: colors.text, fontWeight: "900" }}>
           Método de pago
         </Text>
@@ -344,19 +348,36 @@ export default function CheckoutScreen() {
             disabled={!canPay}
             onPress={async () => {
               try {
-                const sale = await salesActions.checkout({
-                  businessId: activeBusinessId,
-                  paymentMethod: method, // ✅ siempre cash
+                console.log(
+                  "[CheckoutScreen] checkout businessId=",
+                  activeBusinessId,
+                  "total=",
+                  total,
+                  "paid=",
                   paid,
-                  note: note.trim() || undefined,
-                  taxRate: TAX_RATE,
-                });
+                  "tokenHead=",
+                  String(token ?? "").slice(0, 10),
+                );
+
+                const sale = await salesActions.checkout(
+                  {
+                    businessId: activeBusinessId,
+                    paymentMethod: method,
+                    paid,
+                    note: note.trim() || undefined,
+                    taxRate: TAX_RATE,
+                  },
+                  token ?? undefined,
+                );
+
+                console.log("[CheckoutScreen] checkout OK saleId=", sale.id);
 
                 router.replace({
                   pathname: "/sales/sales-detail",
                   params: { id: sale.id },
                 } as any);
               } catch (e: any) {
+                console.log("[CheckoutScreen] checkout FAIL:", String(e));
                 Alert.alert(
                   "Error",
                   e?.message ?? "No se pudo completar la venta",

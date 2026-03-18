@@ -15,14 +15,13 @@ export type Product = {
 
   unit: Unit;
 
-  price: number; // venta
-  cost: number; // costo
+  price: number;
+  cost: number;
   stock: number;
   minStock?: number;
 
-  // ✅ IMAGENES (demo/local + futuro backend)
-  imageUri?: string; // local file uri (FileSystem.documentDirectory...)
-  imageUrl?: string; // remoto (Supabase Storage / CDN) - futuro
+  imageUri?: string;
+  imageUrl?: string;
 
   status: ProductStatus;
 

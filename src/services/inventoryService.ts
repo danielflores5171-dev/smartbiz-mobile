@@ -16,6 +16,7 @@ type Stored = {
 async function read(userId: string): Promise<Stored> {
   const raw = await AsyncStorage.getItem(keyForUser(userId));
   if (!raw) return { products: [], adjustments: [] };
+
   try {
     const parsed = JSON.parse(raw) as Partial<Stored>;
     return {
@@ -104,7 +105,6 @@ export const inventoryService = {
 
     db.adjustments = [created, ...db.adjustments];
 
-    // opcional: reflejar stock en producto
     const idx = db.products.findIndex((p) => p.id === input.productId);
     if (idx !== -1) {
       db.products[idx] = {

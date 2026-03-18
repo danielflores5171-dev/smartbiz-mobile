@@ -1,4 +1,3 @@
-// app/(tabs)/inventory/index.tsx
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
@@ -6,9 +5,11 @@ import { ScrollView, Text, View } from "react-native";
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import ProductCard from "@/src/ui/ProductCard";
 import Screen from "@/src/ui/Screen";
 
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import {
   inventoryActions,
@@ -19,6 +20,9 @@ export default function InventoryIndex() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const authUser = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const allProducts = useInventoryStore((s) => s.products ?? []);
   const loading = useInventoryStore((s) => s.loading);
@@ -26,19 +30,48 @@ export default function InventoryIndex() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    void inventoryActions.bootstrap();
-  }, []);
+    console.log(
+      "[InventoryIndex] effect start userId=",
+      authUser?.id,
+      "businessId=",
+      activeBusinessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
 
-  useEffect(() => {
-    if (!activeBusinessId) return;
-    void inventoryActions.loadProducts(activeBusinessId);
-  }, [activeBusinessId]);
+    let alive = true;
+
+    (async () => {
+      await inventoryActions.bootstrap(authUser?.id);
+
+      if (!alive) return;
+
+      if (!activeBusinessId) {
+        console.log("[InventoryIndex] no active business");
+        return;
+      }
+
+      console.log(
+        "[InventoryIndex] load products businessId=",
+        activeBusinessId,
+      );
+
+      await inventoryActions.loadProducts(activeBusinessId, token ?? undefined);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [authUser?.id, activeBusinessId, token]);
 
   const products = useMemo(() => {
     if (!activeBusinessId) return [];
+
     const list = allProducts.filter((p) => p.businessId === activeBusinessId);
     const query = q.trim().toLowerCase();
+
     if (!query) return list;
+
     return list.filter((p) => {
       const hay = `${p.name} ${p.sku ?? ""} ${p.barcode ?? ""}`.toLowerCase();
       return hay.includes(query);
@@ -80,14 +113,35 @@ export default function InventoryIndex() {
             Inventario
           </Text>
           <Text style={{ color: colors.muted, marginTop: 6 }}>
-            (Demo) Datos locales + persistencia.
+            Productos del negocio activo.
           </Text>
 
-          <View style={{ marginTop: 14 }}>
+          <ModuleStatusCard
+            connectedText="Consulta de productos por negocio, estructura de altas/ediciones/bajas y carga desde API ya coinciden con la web; falta autorización Bearer y completar el ajuste web de imágenes/rutas."
+            demoText="Búsqueda local, fallback de productos guardados localmente y respaldo demo mientras backend no autoriza o aún faltan ajustes de imágenes."
+          />
+
+          <View style={{ marginTop: 14, gap: 10 }}>
             <AppButton
               title="CREAR PRODUCTO"
               onPress={() => router.push("/inventory/create" as any)}
               variant="primary"
+            />
+            <AppButton
+              title="REFRESCAR"
+              onPress={() => {
+                console.log(
+                  "[InventoryIndex] refresh businessId=",
+                  activeBusinessId,
+                  "tokenHead=",
+                  String(token ?? "").slice(0, 10),
+                );
+                void inventoryActions.loadProducts(
+                  activeBusinessId,
+                  token ?? undefined,
+                );
+              }}
+              variant="secondary"
             />
           </View>
 

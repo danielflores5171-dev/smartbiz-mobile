@@ -1,4 +1,3 @@
-// app/(tabs)/inventory/adjust.tsx
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
@@ -9,6 +8,7 @@ import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import Screen from "@/src/ui/Screen";
 
+import { useAuthStore } from "@/src/store/authStore";
 import {
   inventoryActions,
   useInventoryStore,
@@ -21,21 +21,97 @@ const REASONS: StockReason[] = [
   "Ajuste de inventario",
   "Devolución",
   "Otro",
-] as const;
+];
+
+function StatusBanner() {
+  const { colors } = useTheme();
+
+  return (
+    <View
+      style={{
+        marginTop: 12,
+        marginBottom: 14,
+        backgroundColor: colors.card2,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 18,
+        padding: 14,
+      }}
+    >
+      <Text style={{ color: colors.text, fontSize: 18, fontWeight: "900" }}>
+        Estado del módulo
+      </Text>
+
+      <View
+        style={{
+          height: 1,
+          backgroundColor: colors.divider,
+          marginVertical: 12,
+        }}
+      />
+
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: 99,
+            backgroundColor: "#22c55e",
+            marginTop: 4,
+          }}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>
+            Conectado con web • falta autorización
+          </Text>
+          <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 20 }}>
+            Ajuste de stock, envío de cantidad, motivo y nota ya están
+            preparados para backend/web; falta autorización Bearer/cookies para
+            aplicar el movimiento real en servidor.
+          </Text>
+        </View>
+      </View>
+
+      <View style={{ height: 12 }} />
+
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: 99,
+            backgroundColor: "#f59e0b",
+            marginTop: 4,
+          }}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15 }}>
+            Local/demo • se añadirá en próximas actualizaciones
+          </Text>
+          <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 20 }}>
+            Respaldo local del ajuste y parte del historial de movimientos
+            siguen funcionando como demo mientras la autorización o integración
+            completa con web termina de cerrarse.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function AdjustStock() {
   const router = useRouter();
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
 
+  const token = useAuthStore((s) => s.token);
+
   const product = useInventoryStore((s) =>
     (s.products ?? []).find((p) => p.id === id),
   );
 
-  const [delta, setDelta] = useState("0"); // puede ser + o -
-  const [reason, setReason] = useState<(typeof REASONS)[number]>(
-    "Ajuste de inventario",
-  );
+  const [delta, setDelta] = useState("0");
+  const [reason, setReason] = useState<StockReason>("Ajuste de inventario");
   const [note, setNote] = useState("");
 
   const can = useMemo(() => {
@@ -85,11 +161,13 @@ export default function AdjustStock() {
             </Text>
           </Text>
 
+          <StatusBanner />
+
           <AppInput
             label="Cantidad (usa negativo para restar)"
             value={delta}
             onChangeText={setDelta}
-            keyboardType={"numbers-and-punctuation" as any} // ✅ permite "-"
+            keyboardType={"numbers-and-punctuation" as any}
             placeholder="Ej. 5 o -2"
           />
 
@@ -140,13 +218,30 @@ export default function AdjustStock() {
               onPress={async () => {
                 if (!can) return;
 
-                await inventoryActions.adjustStock({
-                  productId: product.id,
-                  delta: Number(delta),
+                console.log(
+                  "[AdjustStock] save productId=",
+                  product.id,
+                  "businessId=",
+                  product.businessId,
+                  "delta=",
+                  Number(delta),
+                  "reason=",
                   reason,
-                  note: note.trim() || undefined,
-                });
+                  "tokenHead=",
+                  String(token ?? "").slice(0, 10),
+                );
 
+                await inventoryActions.adjustStock(
+                  {
+                    productId: product.id,
+                    delta: Number(delta),
+                    reason,
+                    note: note.trim() || undefined,
+                  },
+                  token ?? undefined,
+                );
+
+                console.log("[AdjustStock] save OK");
                 router.replace("/inventory" as any);
               }}
               variant="primary"

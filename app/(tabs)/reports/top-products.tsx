@@ -1,19 +1,19 @@
+// app/(tabs)/reports/top-products.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import { salesActions, useSalesStore } from "@/src/store/salesStore";
-
-import BarChartCard, { type BarDatum } from "@/src/ui/charts/BarChartCard";
-
 import type { ID } from "@/src/types/business";
 import type { CartItem, Sale } from "@/src/types/sales";
+import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
+import BarChartCard, { type BarDatum } from "@/src/ui/charts/BarChartCard";
 
 type Row = {
   productId: string;
@@ -71,6 +71,9 @@ export default function TopProductsReport() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const token = useAuthStore((s) => s.token);
+
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
 
   const allSales = useSalesStore((s) => {
@@ -81,9 +84,12 @@ export default function TopProductsReport() {
   const [days, setDays] = useState<7 | 30 | 90>(30);
 
   useEffect(() => {
-    void salesActions.bootstrap();
-    if (activeBusinessId) void salesActions.loadSales(activeBusinessId as ID);
-  }, [activeBusinessId]);
+    if (!userId) return;
+    void salesActions.bootstrap(userId);
+    if (activeBusinessId) {
+      void salesActions.loadSales(activeBusinessId as ID, token);
+    }
+  }, [userId, activeBusinessId, token]);
 
   const sales = useMemo<Sale[]>(() => {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -310,6 +316,11 @@ export default function TopProductsReport() {
       <Text style={{ color: colors.muted, marginTop: 6 }}>
         Ranking por ventas (demo) del negocio activo.
       </Text>
+
+      <ModuleStatusCard
+        connectedText="Lectura de ventas, cálculo del ranking y estructura del top de productos ya están alineados con web; falta autorización Bearer/cookies y endpoint estadístico final para backend real."
+        demoText="Ranking por ingresos/unidades, gráficas e insights siguen calculándose localmente y se enriquecerán en próximas actualizaciones."
+      />
 
       <View
         style={{

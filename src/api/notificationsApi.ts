@@ -1,16 +1,45 @@
-import { get, post } from "./http";
-import type { ApiNotification, ID } from "./types";
+// src/api/notificationsApi.ts
+import { apiRequest } from "@/src/lib/apiClient";
+
+export type ApiNotification = {
+  id: string;
+  user_id?: string;
+  type?: string | null;
+  title?: string | null;
+  body?: string | null;
+  read_at?: string | null;
+  created_at?: string | null;
+};
 
 export const notificationsApi = {
   list: (token: string) =>
-    get<{ items: ApiNotification[] }>("/api/notifications", token),
-  detail: (token: string, id: ID) =>
-    get<{ notification: ApiNotification }>(`/api/notifications/${id}`, token),
+    apiRequest<{
+      unreadCount?: number;
+      items: ApiNotification[];
+      nextCursor?: string | null;
+    }>("/api/notifications", {
+      method: "GET",
+      token,
+    }),
 
-  read: (token: string, body: any) =>
-    post<{}>("/api/notifications/read", body, token),
+  read: (token: string, body: { id: string; read?: boolean }) =>
+    apiRequest<{}>("/api/notifications/read", {
+      method: "POST",
+      token,
+      body,
+    }),
+
   readAll: (token: string) =>
-    post<{}>("/api/notifications/read-all", {}, token),
-  remove: (token: string, body: any) =>
-    post<{}>("/api/notifications/delete", body, token),
+    apiRequest<{}>("/api/notifications/read-all", {
+      method: "POST",
+      token,
+      body: {},
+    }),
+
+  remove: (token: string, body: { id: string }) =>
+    apiRequest<{}>("/api/notifications/delete", {
+      method: "POST",
+      token,
+      body,
+    }),
 };

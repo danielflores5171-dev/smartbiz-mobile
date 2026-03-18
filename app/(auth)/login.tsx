@@ -12,6 +12,7 @@ import AuthFrame from "@/src/ui/AuthFrame";
 
 // ✅ API client (puente móvil → web)
 import { apiRequest } from "@/src/lib/apiClient";
+import { ENV } from "@/src/lib/env"; // para API_BASE_URL
 
 function isValidEmail(v: string) {
   const x = v.trim().toLowerCase();
@@ -60,7 +61,7 @@ export default function LoginScreen() {
       const token = session?.token ?? "";
       console.log("TOKEN_HEAD", String(token).slice(0, 10));
 
-      // 2) ✅ Puente móvil → web: token → /api/auth/me
+      // 2) ✅ Puente móvil → web: token → /api/auth/me (Bearer)
       try {
         if (!token) {
           console.log("[bridge] Login OK, pero session.token viene vacío");
@@ -73,6 +74,26 @@ export default function LoginScreen() {
         }
       } catch (bridgeErr) {
         console.log("[bridge] /api/auth/me FAIL:", String(bridgeErr));
+      }
+
+      // 2b) ⚠️ Prueba alternativa (cookies) — SOLO para demostrar que en RN no sirve
+      // Nota: credentials/include en RN no garantiza cookies como navegador.
+      try {
+        const API_BASE_URL = String(ENV.API_BASE_URL ?? "").replace(/\/+$/, "");
+        const url = `${API_BASE_URL}/api/auth/me`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          // @ts-ignore: en RN puede ignorarse/variar; lo dejamos solo para test
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const text = await res.text();
+        console.log("[bridge-cookie] status:", res.status);
+        console.log("[bridge-cookie] body head:", text.slice(0, 120));
+      } catch (e) {
+        console.log("[bridge-cookie] FAIL:", String(e));
       }
 
       // 3) Navega normal

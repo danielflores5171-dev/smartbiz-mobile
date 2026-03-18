@@ -6,6 +6,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 
 import {
@@ -209,7 +210,6 @@ export default function SettingsIndex() {
     setMode(m);
   };
 
-  // (los dejamos por compat, aunque UI ya solo muestra 1 opción)
   const setCurrencyChoice = (c: CurrencyCode) => settingsActions.setCurrency(c);
   const setLocaleChoice = (l: LocaleCode) => settingsActions.setLocale(l);
   const setTimezoneChoice = (tz: TimezoneCode) =>
@@ -222,7 +222,6 @@ export default function SettingsIndex() {
 
   return (
     <Screen scroll padded>
-      {/* Header */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Pressable
           onPress={() => router.back()}
@@ -250,7 +249,11 @@ export default function SettingsIndex() {
         </View>
       </View>
 
-      {/* Cuenta */}
+      <ModuleStatusCard
+        connectedText="Soporte ya consume endpoint web preparado, y la estructura de configuración está alineada para futuras integraciones; falta autorización Bearer/cookies y activación completa del backend en algunas rutas."
+        demoText="Tema, idioma, zona horaria, formato, notificaciones del sistema y parte de preferencias siguen funcionando localmente y se ampliarán en próximas actualizaciones."
+      />
+
       <Card
         icon="person-outline"
         title="Cuenta"
@@ -258,21 +261,28 @@ export default function SettingsIndex() {
       >
         <View style={{ gap: 10 }}>
           <NavRow
-            icon="id-card-outline"
-            title="Perfil"
-            subtitle="Nombre, correo, avatar (demo)."
-            onPress={() => router.push("/(tabs)/settings/profile" as any)}
+            icon="sparkles-outline"
+            title="Preferencias"
+            subtitle="Opciones generales (demo)."
+            onPress={() => router.push("/(tabs)/settings/preferences" as any)}
           />
+
           <NavRow
-            icon="lock-closed-outline"
-            title="Seguridad"
-            subtitle="Cambiar contraseña (demo)."
-            onPress={() => router.push("/(tabs)/settings/security" as any)}
+            icon="help-circle-outline"
+            title="Soporte"
+            subtitle="Reportar problemas o enviar dudas."
+            onPress={() => router.push("/(tabs)/settings/support" as any)}
+          />
+
+          <NavRow
+            icon="trash-outline"
+            title="Datos (demo)"
+            subtitle="Reiniciar datos guardados (smartbiz.*)."
+            onPress={() => router.push("/(tabs)/settings/data" as any)}
           />
         </View>
       </Card>
 
-      {/* Tema */}
       <Card
         icon="color-palette-outline"
         title="Tema"
@@ -304,7 +314,6 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* IVA */}
       <Card
         icon="receipt-outline"
         title="Tasa de IVA"
@@ -320,7 +329,6 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Moneda (solo MXN) */}
       <Card
         icon="cash-outline"
         title="Moneda"
@@ -335,7 +343,6 @@ export default function SettingsIndex() {
         </View>
       </Card>
 
-      {/* Idioma (solo ES-MX) */}
       <Card
         icon="language-outline"
         title="Idioma"
@@ -357,7 +364,6 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Zona horaria (solo CDMX) */}
       <Card
         icon="time-outline"
         title="Zona horaria"
@@ -379,7 +385,6 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Formato fecha (solo DMY) */}
       <Card
         icon="calendar-outline"
         title="Formato de fecha"
@@ -401,7 +406,6 @@ export default function SettingsIndex() {
         </Text>
       </Card>
 
-      {/* Notificaciones */}
       <Card
         icon="notifications-outline"
         title="Notificaciones del sistema"
@@ -437,7 +441,6 @@ export default function SettingsIndex() {
         </View>
       </Card>
 
-      {/* Más (sin pantalla aparte de About) */}
       <Card
         icon="options-outline"
         title="Más"
@@ -457,7 +460,6 @@ export default function SettingsIndex() {
             onPress={() => router.push("/(tabs)/settings/data" as any)}
           />
 
-          {/* ✅ Acerca de inline (sin navegación) */}
           <View
             style={{
               paddingVertical: 12,
@@ -521,7 +523,6 @@ export default function SettingsIndex() {
         </View>
       </Card>
 
-      {/* Acciones */}
       <View style={{ marginTop: 16, gap: 10 }}>
         <AppButton
           title="WIDGETS DEL DASHBOARD"

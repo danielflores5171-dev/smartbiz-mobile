@@ -1,25 +1,39 @@
+// src/api/businessApi.ts
 import { del, get, patch, post } from "./http";
-import type { ApiBusiness, ID } from "./types";
+import type { ID } from "./types";
+
+type ApiBusinessItem = {
+  id: string;
+  name: string;
+  is_owner?: boolean;
+  is_admin?: boolean;
+  role?: string;
+};
 
 export const businessApi = {
   list: (token: string) =>
-    get<{ items: ApiBusiness[] }>("/api/business", token),
-  create: (token: string, body: any) =>
-    post<{ business: ApiBusiness }>("/api/business", body, token),
+    get<{ items: ApiBusinessItem[] }>("/api/business", { token }),
 
-  active: (token: string) =>
-    get<{ business: ApiBusiness | null }>("/api/business/active", token),
+  // web: POST /api/business -> { item }
+  create: (token: string, body: { name: string }) =>
+    post<{ item: ApiBusinessItem }>(
+      "/api/business",
+      { name: body.name },
+      { token },
+    ),
 
   detail: (token: string, businessId: ID) =>
-    get<{ business: ApiBusiness }>(`/api/business/${businessId}`, token),
+    get<{ business: any }>(`/api/business/${businessId}`, { token }),
 
-  update: (token: string, businessId: ID, body: any) =>
-    patch<{ business: ApiBusiness }>(
+  update: (token: string, businessId: ID, body: { name: string }) =>
+    patch<{ business: any }>(
       `/api/business/${businessId}`,
-      body,
-      token,
+      { name: body.name },
+      { token },
     ),
 
   remove: (token: string, businessId: ID) =>
-    del<{}>(`/api/business/${businessId}`, token),
+    del<{}>(`/api/business/${businessId}`, { token }),
 };
+
+// ❌ elimina businessApi.active (no existe endpoint en la web)

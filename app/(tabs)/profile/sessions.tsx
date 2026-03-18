@@ -69,6 +69,87 @@ export default function SessionsScreen() {
 
         <View
           style={{
+            backgroundColor: colors.card2,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 18,
+            padding: 14,
+            marginTop: 14,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+            Estado del módulo
+          </Text>
+
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colors.divider,
+              marginVertical: 12,
+            }}
+          />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#22c55e",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Conectado con web • falta autorización
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                La estructura de gestión de sesiones y sus acciones ya está
+                preparada para integrarse con la web; falta autorización
+                Bearer/cookies y endpoint real de sesiones activas.
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ height: 12 }} />
+
+          <View
+            style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+          >
+            <View
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 99,
+                backgroundColor: "#f59e0b",
+                marginTop: 4,
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+              >
+                Local/demo • se añadirá en próximas actualizaciones
+              </Text>
+              <Text
+                style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+              >
+                El listado de sesiones, selección, cierre individual y cierre
+                múltiple siguen operando como demo/local y se conectarán al
+                backend real en futuras actualizaciones.
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={{
             height: 1,
             backgroundColor: colors.divider,
             marginVertical: 16,

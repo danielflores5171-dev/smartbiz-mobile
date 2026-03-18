@@ -40,7 +40,7 @@ function seedDemo(): NotificationItem[] {
       kind: "system",
       createdAt: iso(now - 60 * 60 * 1000),
       read: false,
-      meta: { route: "/(tabs)/dashboard" },
+      meta: { route: "/dashboard" },
     },
     {
       id: uid(),
@@ -49,7 +49,7 @@ function seedDemo(): NotificationItem[] {
       kind: "inventory",
       createdAt: iso(now - 3 * 60 * 60 * 1000),
       read: false,
-      meta: { route: "/(tabs)/inventory" },
+      meta: { route: "/inventory" },
     },
     {
       id: uid(),
@@ -58,7 +58,7 @@ function seedDemo(): NotificationItem[] {
       kind: "sales",
       createdAt: iso(now - 24 * 60 * 60 * 1000),
       read: true,
-      meta: { route: "/(tabs)/sales" },
+      meta: { route: "/sales" },
     },
   ];
 }

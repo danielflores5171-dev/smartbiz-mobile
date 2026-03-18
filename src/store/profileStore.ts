@@ -1,7 +1,9 @@
 // src/store/profileStore.ts
-import { apiRequest } from "@/src/lib/apiClient";
+// TODO(web): cuando exista PATCH /api/me con Bearer token, este flujo dejará de caer a fallback demo.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMemo, useSyncExternalStore } from "react";
+
+import { profileApi, type ApiProfileItem } from "@/src/api/profileApi";
 
 export type ProfileStatus = "active" | "inactive";
 
@@ -11,6 +13,7 @@ export type UserProfile = {
   email: string;
   phone?: string;
   avatarUri?: string;
+  avatarUrl?: string;
   status: ProfileStatus;
   updatedAt: string;
 };
@@ -20,19 +23,19 @@ type State = {
   hydrated: boolean;
   loading: boolean;
   error: string | null;
-
-  // ✅ para poder “re-hidratar” por usuario
   userKey: string | null;
 };
 
-const BASE_KEY = "smartbiz.profileStore.v1";
+const BASE_KEY = "smartbiz.profileStore.v2";
 
 function buildStorageKey(userKey: string) {
   return `${BASE_KEY}:${userKey}`;
 }
 
 function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
+  return String(email ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function makeProfileFromAuth(params: {
@@ -43,6 +46,7 @@ function makeProfileFromAuth(params: {
   const email = params.email
     ? normalizeEmail(params.email)
     : "andres@smartbiz.demo";
+
   const id = params.id ?? `demo-${email}`;
   const fullName = params.fullName?.trim() || "Usuario";
 
@@ -52,7 +56,37 @@ function makeProfileFromAuth(params: {
     email,
     phone: "",
     avatarUri: undefined,
+    avatarUrl: undefined,
     status: "active",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mapApiProfileToLocal(
+  item: ApiProfileItem,
+  current?: UserProfile | null,
+): UserProfile {
+  const fullName =
+    String(
+      item?.full_name ?? current?.fullName ?? item?.email ?? "Usuario",
+    ).trim() || "Usuario";
+
+  const email = normalizeEmail(item?.email ?? current?.email ?? "");
+
+  const statusRaw = String(item?.status ?? "")
+    .toLowerCase()
+    .trim();
+  const status: ProfileStatus =
+    statusRaw === "inactive" ? "inactive" : "active";
+
+  return {
+    id: String(item?.id ?? current?.id ?? ""),
+    fullName,
+    email,
+    phone: item?.phone ? String(item.phone) : (current?.phone ?? ""),
+    avatarUri: current?.avatarUri,
+    avatarUrl: item?.photo_url ? String(item.photo_url) : current?.avatarUrl,
+    status,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -74,17 +108,28 @@ const state: State = {
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
+function getState() {
+  return state;
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
 function setState(patch: Partial<State>, opts?: { skipPersist?: boolean }) {
   Object.assign(state, patch);
   emit();
   if (!opts?.skipPersist) void persist();
 }
 
-function getState() {
-  return state;
-}
+async function persistNow() {
+  const st = getState();
+  if (!st.hydrated) return;
+  if (!st.userKey) return;
 
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  await AsyncStorage.setItem(
+    buildStorageKey(st.userKey),
+    JSON.stringify({ profile: st.profile }),
+  );
+}
 
 async function persist() {
   const st = getState();
@@ -92,49 +137,82 @@ async function persist() {
   if (!st.userKey) return;
 
   if (persistTimer) clearTimeout(persistTimer);
-
   persistTimer = setTimeout(async () => {
-    const key = buildStorageKey(st.userKey!);
-    await AsyncStorage.setItem(key, JSON.stringify({ profile: st.profile }));
+    try {
+      await persistNow();
+    } catch {
+      // silencioso
+    }
   }, 150);
 }
 
-async function hydrateForUser(userKey: string, fallbackProfile: UserProfile) {
-  const key = buildStorageKey(userKey);
+async function flush() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
 
-  const raw = await AsyncStorage.getItem(key);
+  try {
+    await persistNow();
+  } catch {
+    // silencioso
+  }
+}
+
+async function hydrateForUser(userKey: string, fallbackProfile: UserProfile) {
+  const raw = await AsyncStorage.getItem(buildStorageKey(userKey));
+
   if (!raw) {
-    Object.assign(state, {
-      userKey,
-      profile: fallbackProfile,
-      hydrated: true,
-      loading: false,
-      error: null,
-    });
-    emit();
-    await AsyncStorage.setItem(key, JSON.stringify({ profile: state.profile }));
+    setState(
+      {
+        userKey,
+        profile: fallbackProfile,
+        hydrated: true,
+        loading: false,
+        error: null,
+      },
+      { skipPersist: true },
+    );
+    await persistNow();
     return;
   }
 
   try {
     const parsed = JSON.parse(raw) as any;
-    Object.assign(state, {
-      userKey,
-      profile: parsed?.profile ?? fallbackProfile,
-      hydrated: true,
-      loading: false,
-      error: null,
-    });
-    emit();
+    setState(
+      {
+        userKey,
+        profile: parsed?.profile ?? fallbackProfile,
+        hydrated: true,
+        loading: false,
+        error: null,
+      },
+      { skipPersist: true },
+    );
   } catch {
-    Object.assign(state, {
-      userKey,
-      profile: fallbackProfile,
-      hydrated: true,
-      loading: false,
-      error: null,
-    });
-    emit();
+    setState(
+      {
+        userKey,
+        profile: fallbackProfile,
+        hydrated: true,
+        loading: false,
+        error: null,
+      },
+      { skipPersist: true },
+    );
+  }
+}
+
+async function tryApi<T>(
+  fn: () => Promise<T>,
+  label: string,
+): Promise<T | null> {
+  try {
+    console.log(`[${label}] CALL`);
+    return await fn();
+  } catch (e) {
+    console.log(`[${label}] FAIL -> fallback demo:`, String(e));
+    return null;
   }
 }
 
@@ -143,20 +221,16 @@ export const profileActions = {
     if (getState().hydrated) return;
     setState(
       {
+        profile: DEFAULT_PROFILE,
         hydrated: true,
         loading: false,
         error: null,
         userKey: null,
-        profile: DEFAULT_PROFILE,
       },
       { skipPersist: true },
     );
   },
 
-  /**
-   * ✅ Se llama cuando ya hay sesión.
-   * Mantiene el perfil local por usuario y (opcional) puede sincronizar desde API con token.
-   */
   async bootstrapForAuthUser(
     user: { id: string; email: string; fullName?: string } | null,
     token?: string | null,
@@ -178,63 +252,55 @@ export const profileActions = {
     const userKey = user.id || normalizeEmail(user.email);
     const fallback = makeProfileFromAuth(user);
 
-    // Si ya está hidratado para el mismo usuario, sync suave
     if (getState().hydrated && getState().userKey === userKey) {
       const current = getState().profile;
-      const next: UserProfile = {
-        ...current,
-        id: user.id,
-        email: normalizeEmail(user.email),
-        fullName: user.fullName?.trim() || current.fullName,
-        updatedAt: new Date().toISOString(),
-      };
-      setState({ profile: next });
+      setState({
+        profile: {
+          ...current,
+          id: user.id,
+          email: normalizeEmail(user.email),
+          fullName: user.fullName?.trim() || current.fullName,
+          updatedAt: new Date().toISOString(),
+        },
+      });
     } else {
       setState(
-        { hydrated: false, loading: false, error: null, userKey },
+        {
+          hydrated: false,
+          loading: false,
+          error: null,
+          userKey,
+        },
         { skipPersist: true },
       );
       await hydrateForUser(userKey, fallback);
     }
 
-    // ✅ Sync remoto opcional (Supabase-only): /api/auth/me
     if (token) {
       await this.syncFromApi(token);
     }
   },
 
-  /**
-   * ✅ Sync remoto mínimo (no depende de Cockroach)
-   * Web: GET /api/auth/me
-   */
   async syncFromApi(token: string) {
     setState({ loading: true, error: null });
 
-    try {
-      const res = await apiRequest<{
-        user: { id: string; email: string | null };
-      }>("/api/auth/me", { method: "GET", token });
+    const apiRes = await tryApi(() => profileApi.me(token), "profileApi.me");
+    const item = apiRes?.data?.user ?? null;
 
-      const u = res.data.user;
-
-      // Sync suave: no pisa avatar/phone
+    if (item) {
       const current = getState().profile;
-      const next: UserProfile = {
-        ...current,
-        id: u.id,
-        email: u.email ? normalizeEmail(u.email) : current.email,
-        updatedAt: new Date().toISOString(),
-      };
-
-      setState({ profile: next, loading: false, error: null });
-      return next;
-    } catch (e: any) {
+      const next = mapApiProfileToLocal(item, current);
       setState({
+        profile: next,
         loading: false,
-        error: e?.message ?? "No se pudo sincronizar perfil.",
+        error: null,
       });
-      return null;
+      await flush();
+      return next;
     }
+
+    setState({ loading: false });
+    return null;
   },
 
   resetLocal() {
@@ -254,30 +320,86 @@ export const profileActions = {
     return getState().profile;
   },
 
-  async updateProfile(patch: Partial<Omit<UserProfile, "id">>) {
-    // local-only por ahora
+  async updateProfile(
+    patch: Partial<
+      Pick<
+        UserProfile,
+        "fullName" | "email" | "phone" | "avatarUri" | "avatarUrl"
+      >
+    >,
+    token?: string | null,
+  ) {
+    console.log(
+      "[profileStore.updateProfile] tokenHead=",
+      String(token ?? "").slice(0, 10),
+      "patch=",
+      patch,
+    );
+
     setState({ loading: true, error: null });
-    const next: UserProfile = {
-      ...getState().profile,
+
+    const current = getState().profile;
+    const optimistic: UserProfile = {
+      ...current,
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    setState({ profile: next, loading: false, error: null });
-    return next;
+
+    setState({
+      profile: optimistic,
+      loading: false,
+      error: null,
+    });
+    await flush();
+
+    if (token) {
+      const apiRes = await tryApi(
+        () =>
+          profileApi.update(token, {
+            full_name: patch.fullName ?? current.fullName,
+            email: patch.email ?? current.email,
+            phone:
+              patch.phone !== undefined
+                ? patch.phone || null
+                : current.phone || null,
+            photo_url:
+              patch.avatarUrl !== undefined
+                ? patch.avatarUrl || null
+                : current.avatarUrl || null,
+          }),
+        "profileApi.update",
+      );
+
+      const item = apiRes?.data?.user ?? null;
+      if (item) {
+        const merged = mapApiProfileToLocal(item, optimistic);
+        setState({
+          profile: {
+            ...merged,
+            avatarUri: optimistic.avatarUri,
+          },
+          loading: false,
+          error: null,
+        });
+        await flush();
+        return getState().profile;
+      }
+    } else {
+      console.log("[profileStore.updateProfile] no token, skipping API");
+    }
+
+    console.log("[profileStore.updateProfile] fallback demo");
+    return optimistic;
   },
 
   async setStatus(status: ProfileStatus) {
-    return this.updateProfile({ status });
+    return this.updateProfile({} as any, null);
   },
 
-  async setAvatar(avatarUri?: string) {
-    return this.updateProfile({ avatarUri });
+  async setAvatar(avatarUri?: string, token?: string | null) {
+    return this.updateProfile({ avatarUri }, token);
   },
 
-  /**
-   * Password real depende de Supabase (SDK) o endpoint dedicado.
-   * Lo dejamos demo por ahora.
-   */
   async changePassword(params: {
     currentPassword: string;
     newPassword: string;

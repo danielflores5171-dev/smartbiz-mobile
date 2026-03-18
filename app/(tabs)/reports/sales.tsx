@@ -1,15 +1,18 @@
+// app/(tabs)/reports/sales.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
+import { reportsActions, useReportsStore } from "@/src/store/reportsStore";
 import { useSalesStore } from "@/src/store/salesStore";
 import type { PaymentMethod } from "@/src/types/sales";
+import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
 
 function daysAgoISO(days: number) {
   const d = new Date();
@@ -33,12 +36,17 @@ export default function ReportsSales() {
   const router = useRouter();
   const { colors } = useTheme();
 
+  const token = useAuthStore((s) => s.token);
+  const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const activeBiz = useBusinessStore(
     (s) => s.businesses.find((b) => b.id === s.activeBusinessId) ?? null,
   );
 
+  const report = useReportsStore((s) => s.salesReport);
+  const error = useReportsStore((s) => s.error);
+
   const salesByBusiness = useSalesStore((s) => s.salesByBusiness ?? {});
-  const sales = useMemo(() => {
+  const salesLocal = useMemo(() => {
     if (!activeBiz) return [];
     return (salesByBusiness[String(activeBiz.id)] ?? [])
       .slice()
@@ -49,19 +57,30 @@ export default function ReportsSales() {
       });
   }, [salesByBusiness, activeBiz?.id]);
 
-  const last30 = useMemo(() => {
+  useEffect(() => {
+    if (!activeBusinessId) return;
+    void reportsActions.fetchSalesReport(activeBusinessId, token, {
+      range: "month",
+    });
+  }, [activeBusinessId, token]);
+
+  const last30Local = useMemo(() => {
     const min = new Date(daysAgoISO(30)).getTime();
-    return sales.filter(
+    return salesLocal.filter(
       (s: any) => (safeDate(s.createdAt)?.getTime() ?? 0) >= min,
     );
-  }, [sales]);
+  }, [salesLocal]);
 
-  const total30 = useMemo(
-    () => last30.reduce((acc: number, s: any) => acc + Number(s.total ?? 0), 0),
-    [last30],
+  const total30Local = useMemo(
+    () =>
+      last30Local.reduce(
+        (acc: number, s: any) => acc + Number(s.total ?? 0),
+        0,
+      ),
+    [last30Local],
   );
 
-  const byMethod = useMemo(() => {
+  const byMethodLocal = useMemo(() => {
     const base: Record<PaymentMethod, number> = {
       cash: 0,
       card: 0,
@@ -69,8 +88,7 @@ export default function ReportsSales() {
       other: 0,
     };
 
-    // ✅ FIX: valida paymentMethod
-    for (const s of last30) {
+    for (const s of last30Local) {
       const key =
         s.paymentMethod === "cash" ||
         s.paymentMethod === "card" ||
@@ -82,12 +100,41 @@ export default function ReportsSales() {
     }
 
     return base;
-  }, [last30]);
+  }, [last30Local]);
+
+  const byMethodApi = useMemo(() => {
+    const base: Record<PaymentMethod, number> = {
+      cash: 0,
+      card: 0,
+      transfer: 0,
+      other: 0,
+    };
+
+    const daily = Array.isArray(report?.series_daily)
+      ? report.series_daily
+      : [];
+    const total = Number(report?.kpis?.total_sales ?? 0);
+
+    if (!daily.length || total <= 0) return null;
+    return base;
+  }, [report]);
+
+  const byMethod = byMethodApi ?? byMethodLocal;
 
   const maxMethod = useMemo(
     () => Math.max(1, ...Object.values(byMethod)),
     [byMethod],
   );
+
+  const total30 =
+    Number(report?.kpis?.total_sales ?? 0) > 0
+      ? Number(report.kpis.total_sales)
+      : total30Local;
+
+  const count30 =
+    Number(report?.kpis?.orders ?? 0) > 0
+      ? Number(report.kpis.orders)
+      : last30Local.length;
 
   if (!activeBiz) {
     return (
@@ -121,8 +168,17 @@ export default function ReportsSales() {
           Reporte de ventas
         </Text>
         <Text style={{ color: colors.muted, marginTop: 6 }}>
-          Últimos 30 días (demo).
+          Últimos 30 días. Si backend falla, usa datos locales.
         </Text>
+
+        <ModuleStatusCard
+          connectedText="Resumen de ventas, KPIs y estructura del reporte mensual ya coinciden con web; falta autorización Bearer/cookies para consumir métricas reales."
+          demoText="Distribución local por método de pago y respaldo con ventas locales mientras backend no autoriza."
+        />
+
+        {error ? (
+          <Text style={{ color: colors.muted, marginTop: 10 }}>{error}</Text>
+        ) : null}
 
         <View style={{ marginTop: 12 }}>
           <Text style={{ color: colors.muted }}>
@@ -134,7 +190,7 @@ export default function ReportsSales() {
           <Text style={{ color: colors.muted, marginTop: 6 }}>
             Ventas registradas:{" "}
             <Text style={{ color: colors.text, fontWeight: "900" }}>
-              {last30.length}
+              {count30}
             </Text>
           </Text>
         </View>

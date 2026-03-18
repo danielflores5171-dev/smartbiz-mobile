@@ -45,6 +45,84 @@ export default function BusinessCreate() {
 
       <View
         style={{
+          backgroundColor: colors.card2,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 18,
+          padding: 14,
+          marginBottom: 12,
+        }}
+      >
+        <Text style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}>
+          Estado del módulo
+        </Text>
+
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.divider,
+            marginVertical: 12,
+          }}
+        />
+
+        <View
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+        >
+          <View
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 99,
+              backgroundColor: "#22c55e",
+              marginTop: 4,
+            }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+            >
+              Conectado con web • falta autorización
+            </Text>
+            <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}>
+              La estructura de alta de negocio, captura de datos principales y
+              persistencia hacia backend ya coinciden con la web; falta
+              autorización Bearer/cookies y activación completa del endpoint
+              real.
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ height: 12 }} />
+
+        <View
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
+        >
+          <View
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 99,
+              backgroundColor: "#f59e0b",
+              marginTop: 4,
+            }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 14 }}
+            >
+              Local/demo • se añadirá en próximas actualizaciones
+            </Text>
+            <Text style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}>
+              La validación visual del formulario y el guardado de respaldo
+              local siguen operando en demo mientras backend no autoriza o no
+              termina de responder con persistencia remota real.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View
+        style={{
           backgroundColor: colors.card,
           borderWidth: 1,
           borderColor: colors.border,

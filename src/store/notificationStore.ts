@@ -6,7 +6,6 @@ import {
   type NotificationKind,
 } from "../services/notificationService";
 
-// ✅ API client real (Bearer + contrato {ok:true,data:{...}})
 import { apiRequest } from "@/src/lib/apiClient";
 
 type State = {
@@ -15,6 +14,16 @@ type State = {
   error: string | null;
   items: NotificationItem[];
   userId: string | null;
+};
+
+type ApiNotificationRow = {
+  id: string;
+  user_id?: string;
+  type?: string | null;
+  title?: string | null;
+  body?: string | null;
+  read_at?: string | null;
+  created_at?: string | null;
 };
 
 let state: State = {
@@ -43,16 +52,19 @@ function requireUserId() {
   return uid;
 }
 
-// ✅ helper: intenta API; si falla, regresa null (fallback demo)
-async function tryApi<T>(fn: () => Promise<T>): Promise<T | null> {
+async function tryApi<T>(
+  fn: () => Promise<T>,
+  label: string,
+): Promise<T | null> {
   try {
+    console.log(`[${label}] CALL`);
     return await fn();
-  } catch {
+  } catch (e) {
+    console.log(`[${label}] FAIL -> fallback demo:`, String(e));
     return null;
   }
 }
 
-// ✅ payload flexible (para inventoryStore / legacy)
 type AddInput =
   | {
       kind: NotificationKind;
@@ -61,7 +73,7 @@ type AddInput =
       meta?: NotificationItem["meta"];
     }
   | {
-      type: string; // legacy
+      type: string;
       title: string;
       message: string;
       businessId?: string;
@@ -78,14 +90,72 @@ function mapTypeToKind(type: string): NotificationKind {
   return "system";
 }
 
+function defaultRouteForKind(kind: NotificationKind) {
+  if (kind === "inventory") return "/inventory";
+  if (kind === "sales") return "/sales";
+  if (kind === "business") return "/business";
+  return "/dashboard";
+}
+
+function mapApiRowToItem(row: ApiNotificationRow): NotificationItem {
+  const kind = mapTypeToKind(String(row.type ?? "system"));
+
+  return {
+    id: String(row.id ?? ""),
+    title: String(row.title ?? "Notificación"),
+    body: String(row.body ?? ""),
+    kind,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    read: !!row.read_at,
+    meta: {
+      route: defaultRouteForKind(kind),
+    },
+  };
+}
+
+function normalizeIncoming(input: AddInput): {
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  meta?: NotificationItem["meta"];
+} {
+  if ("kind" in input) {
+    return {
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      meta: input.meta,
+    };
+  }
+
+  const kind = mapTypeToKind(input.type);
+
+  return {
+    kind,
+    title: input.title,
+    body: input.message,
+    meta: {
+      payload: { businessId: input.businessId, ...(input.meta ?? {}) },
+      route: defaultRouteForKind(kind),
+    },
+  };
+}
+
 export const notificationActions = {
-  /**
-   * ✅ Bootstrap
-   * Si pasas token: GET /api/notifications
-   * Si falla: notificationService.list(userId)
-   */
   async bootstrap(userId: string, token?: string | null) {
-    if (getState().hydrated && getState().userId === userId) return;
+    console.log(
+      "[notificationStore.bootstrap] userId=",
+      userId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
+    if (getState().hydrated && getState().userId === userId) {
+      console.log(
+        "[notificationStore.bootstrap] skip: ya hidratado para este usuario",
+      );
+      return;
+    }
 
     setState({
       loading: true,
@@ -95,63 +165,97 @@ export const notificationActions = {
       items: [],
     });
 
-    // 1) API real
     if (token) {
-      const apiRes = await tryApi(() =>
-        apiRequest<{ items: NotificationItem[] }>("/api/notifications", {
-          method: "GET",
-          token,
-        }),
+      const apiRes = await tryApi(
+        () =>
+          apiRequest<{
+            unreadCount?: number;
+            items: ApiNotificationRow[];
+            nextCursor?: string | null;
+          }>("/api/notifications", {
+            method: "GET",
+            token,
+          }),
+        "notificationsApi.list",
       );
-      const items = (apiRes as any)?.data?.items as
-        | NotificationItem[]
+
+      const rawItems = (apiRes as any)?.data?.items as
+        | ApiNotificationRow[]
         | undefined;
-      if (items && Array.isArray(items)) {
-        setState({ items, loading: false, hydrated: true, error: null });
+
+      if (Array.isArray(rawItems)) {
+        const mapped = rawItems.map(mapApiRowToItem);
+        setState({
+          items: mapped,
+          loading: false,
+          hydrated: true,
+          error: null,
+          userId,
+        });
         return;
       }
     }
 
-    // 2) fallback demo
     try {
       const items = await notificationService.list(userId);
-      setState({ items, loading: false, hydrated: true, error: null });
+      setState({
+        items,
+        loading: false,
+        hydrated: true,
+        error: null,
+        userId,
+      });
     } catch (e: any) {
       setState({
         loading: false,
         hydrated: true,
         error: e?.message ?? "No se pudieron cargar notificaciones.",
+        userId,
       });
     }
   },
 
-  /**
-   * Refresh
-   * Si token: GET /api/notifications
-   * Si falla: demo list
-   */
   async refresh(token?: string | null) {
     const userId = requireUserId();
+
+    console.log(
+      "[notificationStore.refresh] userId=",
+      userId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     setState({ loading: true, error: null });
 
-    // 1) API real
     if (token) {
-      const apiRes = await tryApi(() =>
-        apiRequest<{ items: NotificationItem[] }>("/api/notifications", {
-          method: "GET",
-          token,
-        }),
+      const apiRes = await tryApi(
+        () =>
+          apiRequest<{
+            unreadCount?: number;
+            items: ApiNotificationRow[];
+            nextCursor?: string | null;
+          }>("/api/notifications", {
+            method: "GET",
+            token,
+          }),
+        "notificationsApi.list",
       );
-      const items = (apiRes as any)?.data?.items as
-        | NotificationItem[]
+
+      const rawItems = (apiRes as any)?.data?.items as
+        | ApiNotificationRow[]
         | undefined;
-      if (items && Array.isArray(items)) {
-        setState({ items, loading: false, error: null, hydrated: true });
+
+      if (Array.isArray(rawItems)) {
+        setState({
+          items: rawItems.map(mapApiRowToItem),
+          loading: false,
+          error: null,
+          hydrated: true,
+        });
         return;
       }
     }
 
-    // 2) fallback demo
     try {
       const items = await notificationService.list(userId);
       setState({ items, loading: false, error: null, hydrated: true });
@@ -163,41 +267,9 @@ export const notificationActions = {
     }
   },
 
-  /**
-   * Add (local-only por ahora)
-   * Tu backend no muestra un POST /api/notifications para crear,
-   * así que esta acción se queda como demo/local (sirve perfecto para eventos de UI).
-   */
   async add(input: AddInput) {
     const userId = requireUserId();
-
-    const normalized: {
-      kind: NotificationKind;
-      title: string;
-      body: string;
-      meta?: NotificationItem["meta"];
-    } =
-      "kind" in input
-        ? {
-            kind: input.kind,
-            title: input.title,
-            body: input.body,
-            meta: input.meta,
-          }
-        : {
-            kind: mapTypeToKind(input.type),
-            title: input.title,
-            body: input.message,
-            meta: {
-              payload: { businessId: input.businessId, ...(input.meta ?? {}) },
-              route:
-                mapTypeToKind(input.type) === "inventory"
-                  ? "/(tabs)/inventory"
-                  : mapTypeToKind(input.type) === "sales"
-                    ? "/(tabs)/sales"
-                    : "/(tabs)/dashboard",
-            },
-          };
+    const normalized = normalizeIncoming(input);
 
     const optimistic: NotificationItem = {
       id: `ntf-local-${Math.random().toString(36).slice(2, 9)}`,
@@ -225,128 +297,148 @@ export const notificationActions = {
     }
   },
 
-  /**
-   * Mark read
-   * API real: POST /api/notifications/read
-   * fallback: notificationService.markRead
-   */
   async markRead(id: string, read = true, token?: string | null) {
     const userId = requireUserId();
 
-    // optimista local
+    console.log(
+      "[notificationStore.markRead] id=",
+      id,
+      "read=",
+      read,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
+    const prev = getState().items;
     setState({
-      items: getState().items.map((n) => (n.id === id ? { ...n, read } : n)),
+      items: prev.map((n) => (n.id === id ? { ...n, read } : n)),
+      error: null,
     });
 
-    // 1) API real
     if (token) {
-      const ok = await tryApi(() =>
-        apiRequest<{}>("/api/notifications/read", {
-          method: "POST",
-          token,
-          body: { id, read },
-        }),
+      const ok = await tryApi(
+        () =>
+          apiRequest<{}>("/api/notifications/read", {
+            method: "POST",
+            token,
+            body: { id, read },
+          }),
+        "notificationsApi.read",
       );
+
       if (ok) {
-        // opcional: refrescar desde API para consistencia
         await this.refresh(token);
         return;
       }
     }
 
-    // 2) fallback demo
     try {
       const next = await notificationService.markRead(userId, id, read);
       setState({ items: next, error: null });
     } catch (e: any) {
-      await this.refresh(token);
-      setState({ error: e?.message ?? "No se pudo actualizar." });
+      setState({ items: prev, error: e?.message ?? "No se pudo actualizar." });
     }
   },
 
-  /**
-   * Mark all read
-   * API real: POST /api/notifications/read-all
-   * fallback: notificationService.markAllRead
-   */
   async markAllRead(token?: string | null) {
     const userId = requireUserId();
 
-    setState({ items: getState().items.map((n) => ({ ...n, read: true })) });
+    console.log(
+      "[notificationStore.markAllRead] tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
 
-    // 1) API real
+    const prev = getState().items;
+    setState({
+      items: prev.map((n) => ({ ...n, read: true })),
+      error: null,
+    });
+
     if (token) {
-      const ok = await tryApi(() =>
-        apiRequest<{}>("/api/notifications/read-all", {
-          method: "POST",
-          token,
-          body: {},
-        }),
+      const ok = await tryApi(
+        () =>
+          apiRequest<{}>("/api/notifications/read-all", {
+            method: "POST",
+            token,
+            body: {},
+          }),
+        "notificationsApi.readAll",
       );
+
       if (ok) {
         await this.refresh(token);
         return;
       }
     }
 
-    // 2) fallback demo
     try {
       const next = await notificationService.markAllRead(userId);
       setState({ items: next, error: null });
     } catch (e: any) {
-      await this.refresh(token);
-      setState({ error: e?.message ?? "No se pudo marcar todo como leído." });
+      setState({
+        items: prev,
+        error: e?.message ?? "No se pudo marcar todo como leído.",
+      });
     }
   },
 
-  /**
-   * Remove
-   * API real: POST /api/notifications/delete
-   * fallback: notificationService.remove
-   */
   async remove(id: string, token?: string | null) {
     const userId = requireUserId();
 
-    setState({ items: getState().items.filter((n) => n.id !== id) });
+    console.log(
+      "[notificationStore.remove] id=",
+      id,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
 
-    // 1) API real
+    const prev = getState().items;
+    setState({
+      items: prev.filter((n) => n.id !== id),
+      error: null,
+    });
+
     if (token) {
-      const ok = await tryApi(() =>
-        apiRequest<{}>("/api/notifications/delete", {
-          method: "POST",
-          token,
-          body: { id },
-        }),
+      const ok = await tryApi(
+        () =>
+          apiRequest<{}>("/api/notifications/delete", {
+            method: "POST",
+            token,
+            body: { id },
+          }),
+        "notificationsApi.remove",
       );
+
       if (ok) {
         await this.refresh(token);
         return;
       }
     }
 
-    // 2) fallback demo
     try {
       const next = await notificationService.remove(userId, id);
       setState({ items: next, error: null });
     } catch (e: any) {
-      await this.refresh(token);
-      setState({ error: e?.message ?? "No se pudo eliminar." });
+      setState({ items: prev, error: e?.message ?? "No se pudo eliminar." });
     }
   },
 
-  /**
-   * Clear all
-   * No hay endpoint claro en tu lista para "clear all" remoto,
-   * así que se queda demo/local por ahora.
-   */
   async clearAll() {
     const userId = requireUserId();
-    setState({ items: [] });
+
+    console.log("[notificationStore.clearAll] local-only fallback demo");
+
+    const prev = getState().items;
+    setState({ items: [], error: null });
+
     try {
       const next = await notificationService.clearAll(userId);
       setState({ items: next, error: null });
     } catch (e: any) {
-      setState({ error: e?.message ?? "No se pudo limpiar." });
+      setState({
+        items: prev,
+        error: e?.message ?? "No se pudo limpiar.",
+      });
     }
   },
 

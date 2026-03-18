@@ -1,10 +1,14 @@
-// src/store/businessStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMemo, useSyncExternalStore } from "react";
 import { businessService } from "../services/businessService";
-import type { Business, Employee, ID, Supplier } from "../types/business";
+import type {
+  Business,
+  Employee,
+  EmployeeRole,
+  ID,
+  Supplier,
+} from "../types/business";
 
-// ✅ NUEVO: adapters API reales (ajusta rutas si tu carpeta api es otra)
 import { businessApi } from "@/src/api/businessApi";
 import { employeesApi } from "@/src/api/employeesApi";
 import { suppliersApi } from "@/src/api/suppliersApi";
@@ -23,7 +27,7 @@ type State = {
   error: string | null;
 };
 
-const BASE_KEY = "smartbiz.businessStore.v3";
+const BASE_KEY = "smartbiz.businessStore.v6";
 const keyForUser = (userId: string) => `${BASE_KEY}:${userId}`;
 
 const state: State = {
@@ -45,6 +49,7 @@ const emit = () => listeners.forEach((l) => l());
 const getState = () => state;
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let bootstrapInFlight = false;
 
 async function persistNow() {
   const s = getState();
@@ -94,6 +99,19 @@ function setState(patch: Partial<State>, opts?: { skipPersist?: boolean }) {
   if (!opts?.skipPersist) persist();
 }
 
+async function tryApi<T>(
+  fn: () => Promise<T>,
+  label: string,
+): Promise<T | null> {
+  try {
+    console.log(`[${label}] CALL`);
+    return await fn();
+  } catch (e) {
+    console.log(`[${label}] FAIL -> fallback demo:`, String(e));
+    return null;
+  }
+}
+
 async function hydrateForUser(userId: string) {
   const raw = await AsyncStorage.getItem(keyForUser(userId));
 
@@ -122,7 +140,7 @@ async function hydrateForUser(userId: string) {
         userId,
         hydrated: true,
         businesses: parsed?.businesses ?? [],
-        activeBusinessId: parsed?.activeBusinessId ?? null,
+        activeBusinessId: null,
         employees: parsed?.employees ?? [],
         suppliers: parsed?.suppliers ?? [],
         loading: false,
@@ -147,81 +165,170 @@ async function hydrateForUser(userId: string) {
   }
 }
 
-/**
- * Helper: intenta API; si falla, cae a demo.
- */
-async function tryApi<T>(fn: () => Promise<T>): Promise<T | null> {
-  try {
-    return await fn();
-  } catch {
-    return null;
-  }
+/* ------------------ HELPERS / MAPPERS ------------------ */
+
+function mapApiBusinessItemToBusiness(it: any): Business {
+  return {
+    id: String(it?.id ?? "") as ID,
+    name: String(it?.name ?? ""),
+    status: it?.status ?? "active",
+    createdAt: String(it?.created_at ?? new Date().toISOString()),
+  };
+}
+
+function toAppEmployeeRole(role: unknown): EmployeeRole {
+  const r = String(role ?? "")
+    .toLowerCase()
+    .trim();
+  if (r === "admin") return "ADMIN";
+  if (r === "manager") return "MANAGER";
+  if (r === "cashier") return "CASHIER";
+  return "STAFF";
+}
+
+function toApiEmployeeRole(
+  role: EmployeeRole,
+): "admin" | "manager" | "cashier" | "viewer" {
+  if (role === "ADMIN") return "admin";
+  if (role === "MANAGER") return "manager";
+  if (role === "CASHIER") return "cashier";
+  return "viewer";
+}
+
+function mapApiEmployeeItemToEmployee(it: any, businessId: ID): Employee {
+  return {
+    id: String(it?.user_id ?? it?.id ?? "") as ID,
+    businessId,
+    fullName: String(it?.name ?? it?.full_name ?? it?.email ?? ""),
+    email: it?.email ? String(it.email) : undefined,
+    role: toAppEmployeeRole(it?.role),
+    status: "active",
+    createdAt: String(it?.created_at ?? new Date().toISOString()),
+  };
+}
+
+function mapApiSupplierItemToSupplier(it: any): Supplier {
+  return {
+    id: String(it?.id ?? "") as ID,
+    businessId: String(it?.business_id ?? "") as ID,
+    name: String(it?.name ?? ""),
+    phone: it?.phone ? String(it.phone) : undefined,
+    email: it?.email ? String(it.email) : undefined,
+    createdAt: String(it?.created_at ?? new Date().toISOString()),
+    contactName: "",
+    notes: "",
+  };
+}
+
+function buildSupplierApiBody(input: Partial<Supplier>) {
+  return {
+    name: input.name?.trim() ?? "",
+    email: input.email?.trim() || null,
+    phone: input.phone?.trim() || null,
+    address: null,
+  };
 }
 
 export const businessActions = {
-  /**
-   * ✅ Bootstrap por usuario
-   * Si mandas token, intentará API real primero, si falla cae al demo.
-   */
   async bootstrap(userId?: string, token?: string) {
-    if (!userId) {
-      if (!getState().hydrated)
-        setState({ hydrated: true }, { skipPersist: true });
+    console.log(
+      "[businessStore.bootstrap] userId=",
+      userId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
+    if (bootstrapInFlight) {
+      console.log("[businessStore.bootstrap] skip: bootstrap en curso");
       return;
     }
 
-    if (getState().hydrated && getState().userId === userId) return;
+    if (!userId) {
+      if (!getState().hydrated) {
+        setState({ hydrated: true }, { skipPersist: true });
+      }
+      return;
+    }
 
-    setState(
-      {
-        userId,
-        hydrated: false,
-        loading: true,
-        error: null,
-        businesses: [],
+    if (getState().hydrated && getState().userId === userId) {
+      console.log(
+        "[businessStore.bootstrap] skip: ya hidratado para este usuario",
+      );
+      return;
+    }
+
+    bootstrapInFlight = true;
+
+    try {
+      setState(
+        {
+          userId,
+          hydrated: false,
+          loading: true,
+          error: null,
+          businesses: [],
+          activeBusinessId: null,
+          employees: [],
+          suppliers: [],
+        },
+        { skipPersist: true },
+      );
+
+      await hydrateForUser(userId);
+
+      if (token) {
+        console.log("[businessStore.bootstrap] calling businessApi.list...");
+        const apiRes = await tryApi(
+          () => businessApi.list(token),
+          "businessApi.list",
+        );
+        const rawItems = (apiRes as any)?.data?.items;
+
+        if (Array.isArray(rawItems)) {
+          const items = rawItems.map(mapApiBusinessItemToBusiness);
+          console.log(
+            "[businessStore.bootstrap] businesses from API:",
+            items.length,
+          );
+          setState({
+            businesses: items,
+            activeBusinessId: null,
+          });
+          await flush();
+        } else {
+          console.log("[businessStore.bootstrap] API returned no items array");
+        }
+      } else {
+        console.log("[businessStore.bootstrap] no token, skipping API");
+      }
+
+      if (getState().businesses.length === 0) {
+        console.log(
+          "[businessStore.bootstrap] using fallback demo/businessService",
+        );
+        try {
+          const remote = await businessService.listBusinesses();
+          if (remote.length > 0) {
+            setState({
+              businesses: remote,
+              activeBusinessId: null,
+            });
+            await flush();
+          }
+        } catch {
+          // demo
+        }
+      }
+
+      setState({
         activeBusinessId: null,
-        employees: [],
-        suppliers: [],
-      },
-      { skipPersist: true },
-    );
+        loading: false,
+        hydrated: true,
+      });
 
-    await hydrateForUser(userId);
-
-    // 1) Intentar traer businesses desde API real
-    if (token) {
-      const apiRes = await tryApi(() => businessApi.list(token));
-      if (apiRes && Array.isArray((apiRes as any).data?.items)) {
-        const items = (apiRes as any).data.items as Business[];
-        if (items.length > 0) {
-          // ✅ NO autoseleccionamos negocio
-          setState({ businesses: items });
-          await flush();
-        }
-      }
-    }
-
-    // 2) Fallback demo si no hay businesses aún
-    if (getState().businesses.length === 0) {
-      try {
-        const remote = await businessService.listBusinesses();
-        if (remote.length > 0) {
-          setState({ businesses: remote });
-          await flush();
-        }
-      } catch {
-        // demo silencioso
-      }
-    }
-
-    setState({ loading: false, hydrated: true });
-
-    // ✅ Si el usuario ya tenía un negocio activo en local, precarga dependientes.
-    const bizId = getState().activeBusinessId;
-    if (bizId) {
-      await this.loadEmployees(bizId, token);
-      await this.loadSuppliers(bizId, token);
       await flush();
+    } finally {
+      bootstrapInFlight = false;
     }
   },
 
@@ -262,16 +369,20 @@ export const businessActions = {
     return s.businesses.find((b) => b.id === s.activeBusinessId) ?? null;
   },
 
-  /**
-   * ✅ El usuario elige manualmente negocio activo
-   * (si luego quieres sincronizarlo a backend, lo hacemos cuando tengas permisos)
-   */
-  setActiveBusiness(id: ID | null) {
+  setActiveBusiness(id: ID | null, token?: string) {
+    console.log("[businessStore.setActiveBusiness] id=", id);
+
     setState({ activeBusinessId: id });
-    if (id) {
-      void this.loadEmployees(id);
-      void this.loadSuppliers(id);
+
+    if (!id) {
+      console.log("[businessStore.setActiveBusiness] deactivated business");
+      return;
     }
+
+    console.log("[businessStore.setActiveBusiness] activated business=", id);
+
+    void this.loadEmployees(id, token);
+    void this.loadSuppliers(id, token);
   },
 
   // ---- Businesses ----
@@ -279,13 +390,25 @@ export const businessActions = {
     input: Omit<Business, "id" | "createdAt">,
     token?: string,
   ) {
+    console.log(
+      "[businessStore.createBusiness] name=",
+      input.name,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     setState({ loading: true, error: null });
+
     try {
-      // API real si token
       if (token) {
-        const apiRes = await tryApi(() => businessApi.create(token, input));
-        const created = (apiRes as any)?.data?.business as Business | undefined;
-        if (created) {
+        const apiRes = await tryApi(
+          () => businessApi.create(token, { name: input.name }),
+          "businessApi.create",
+        );
+
+        const it = (apiRes as any)?.data?.item;
+        if (it) {
+          const created = mapApiBusinessItemToBusiness(it);
           setState({
             businesses: [created, ...getState().businesses],
             loading: false,
@@ -295,7 +418,6 @@ export const businessActions = {
         }
       }
 
-      // fallback demo
       const created = await businessService.createBusiness(input);
       setState({
         businesses: [created, ...getState().businesses],
@@ -310,19 +432,24 @@ export const businessActions = {
   },
 
   async updateBusiness(id: ID, patch: Partial<Business>, token?: string) {
+    console.log("[businessStore.updateBusiness] id=", id, "patch=", patch);
+
     setState({ loading: true, error: null });
 
-    // optimista local
     const next = getState().businesses.map((b) =>
       b.id === id ? { ...b, ...patch } : b,
     );
     setState({ businesses: next, loading: false });
     await flush();
 
-    // API real si token; si falla, demo
     if (token) {
-      const ok = await tryApi(() => businessApi.update(token, id, patch));
-      if (ok) return getState().businesses.find((b) => b.id === id) ?? null;
+      const name = patch?.name;
+      if (typeof name === "string" && name.trim()) {
+        await tryApi(
+          () => businessApi.update(token, id, { name }),
+          "businessApi.update",
+        );
+      }
     }
 
     try {
@@ -335,6 +462,8 @@ export const businessActions = {
   },
 
   async deleteBusiness(id: ID, token?: string) {
+    console.log("[businessStore.deleteBusiness] id=", id);
+
     setState({ loading: true, error: null });
 
     const remaining = getState().businesses.filter((b) => b.id !== id);
@@ -352,8 +481,7 @@ export const businessActions = {
     await flush();
 
     if (token) {
-      const ok = await tryApi(() => businessApi.remove(token, id));
-      if (ok) return;
+      await tryApi(() => businessApi.remove(token, id), "businessApi.remove");
     }
 
     try {
@@ -365,27 +493,54 @@ export const businessActions = {
 
   // ---- Employees ----
   async loadEmployees(businessId: ID, token?: string) {
+    console.log(
+      "[businessStore.loadEmployees] businessId=",
+      businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     const has = getState().employees.some((e) => e.businessId === businessId);
-    if (has) return;
+    if (has) {
+      console.log("[businessStore.loadEmployees] skip: ya cargados");
+      return;
+    }
+
     await this.refreshEmployees(businessId, token);
     await flush();
   },
 
   async refreshEmployees(businessId: ID, token?: string) {
-    // API real
+    console.log(
+      "[businessStore.refreshEmployees] businessId=",
+      businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     if (token) {
-      const apiRes = await tryApi(() => employeesApi.list(token, businessId));
-      const items = (apiRes as any)?.data?.items as Employee[] | undefined;
-      if (items && Array.isArray(items)) {
+      const apiRes = await tryApi(
+        () => employeesApi.list(token, businessId),
+        "employeesApi.list",
+      );
+      const raw = (apiRes as any)?.data?.items;
+
+      if (Array.isArray(raw)) {
+        console.log("[businessStore.refreshEmployees] API items=", raw.length);
+        const items = raw.map((it: any) =>
+          mapApiEmployeeItemToEmployee(it, businessId),
+        );
         const others = getState().employees.filter(
           (e) => e.businessId !== businessId,
         );
         setState({ employees: [...items, ...others] });
+        await flush();
         return;
       }
     }
 
-    // fallback demo
+    console.log("[businessStore.refreshEmployees] fallback demo");
+
     try {
       const list = await businessService.listEmployees(businessId);
       const seed: Employee[] =
@@ -393,7 +548,7 @@ export const businessActions = {
           ? list
           : [
               {
-                id: `emp-demo-${businessId}`,
+                id: `emp-demo-${businessId}` as any,
                 businessId,
                 fullName: "Andrés López",
                 role: "ADMIN",
@@ -407,45 +562,85 @@ export const businessActions = {
         (e) => e.businessId !== businessId,
       );
       setState({ employees: [...seed, ...others] });
+      await flush();
     } catch {
       // demo
     }
   },
 
-  async addEmployeeQuick(fullName: string, token?: string) {
+  async addEmployee(
+    input: { email: string; role: EmployeeRole },
+    token?: string,
+  ) {
     const bizId = getState().activeBusinessId;
-    if (!bizId) return;
+    if (!bizId) throw new Error("Primero selecciona un negocio.");
 
-    // API real si token (si tu endpoint requiere body más completo, ajustamos luego)
+    const email = input.email.trim().toLowerCase();
+    if (!email) throw new Error("Ingresa un correo.");
+
+    console.log(
+      "[businessStore.addEmployee] businessId=",
+      bizId,
+      "email=",
+      email,
+      "role=",
+      input.role,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     if (token) {
-      const apiRes = await tryApi(() =>
-        employeesApi.create(token, bizId, {
-          fullName,
-          role: "STAFF",
-          status: "active",
-        }),
+      const apiRes = await tryApi(
+        () =>
+          employeesApi.create(token, bizId, {
+            email,
+            role: toApiEmployeeRole(input.role),
+          }),
+        "employeesApi.create",
       );
-      const created = (apiRes as any)?.data?.member as Employee | undefined;
-      if (created) {
-        setState({ employees: [created, ...getState().employees] });
+
+      const it = (apiRes as any)?.data?.item;
+      if (it) {
+        const created = mapApiEmployeeItemToEmployee(it, bizId);
+        setState({
+          employees: [created, ...getState().employees],
+          error: null,
+        });
         await flush();
-        return;
+        return created;
       }
+
+      console.log(
+        "[businessStore.addEmployee] backend unavailable -> fallback local/demo",
+      );
+    } else {
+      console.log(
+        "[businessStore.addEmployee] no token -> fallback local/demo",
+      );
     }
 
-    // fallback demo
-    const created = await businessService.createEmployee({
+    const localEmployee: Employee = {
+      id: `emp-local-${Date.now()}` as ID,
       businessId: bizId,
-      fullName,
-      role: "STAFF",
+      fullName: email.split("@")[0] || "Empleado demo",
+      email,
+      role: input.role,
       status: "active",
+      createdAt: new Date().toISOString(),
+    };
+
+    setState({
+      employees: [localEmployee, ...getState().employees],
+      error: null,
     });
 
-    setState({ employees: [created, ...getState().employees] });
     await flush();
+    return localEmployee;
   },
 
   async updateEmployeeLocal(id: ID, patch: Partial<Employee>) {
+    console.log("[businessStore.updateEmployeeLocal] id=", id, "patch=", patch);
+
     const next = getState().employees.map((e) =>
       e.id === id ? { ...e, ...patch } : e,
     );
@@ -455,27 +650,52 @@ export const businessActions = {
 
   // ---- Suppliers ----
   async loadSuppliers(businessId: ID, token?: string) {
+    console.log(
+      "[businessStore.loadSuppliers] businessId=",
+      businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     const has = getState().suppliers.some((s) => s.businessId === businessId);
-    if (has) return;
+    if (has) {
+      console.log("[businessStore.loadSuppliers] skip: ya cargados");
+      return;
+    }
+
     await this.refreshSuppliers(businessId, token);
     await flush();
   },
 
   async refreshSuppliers(businessId: ID, token?: string) {
-    // API real
+    console.log(
+      "[businessStore.refreshSuppliers] businessId=",
+      businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     if (token) {
-      const apiRes = await tryApi(() => suppliersApi.list(token, businessId));
-      const items = (apiRes as any)?.data?.items as Supplier[] | undefined;
-      if (items && Array.isArray(items)) {
+      const apiRes = await tryApi(
+        () => suppliersApi.list(token, businessId),
+        "suppliersApi.list",
+      );
+      const raw = (apiRes as any)?.data?.items;
+
+      if (Array.isArray(raw)) {
+        console.log("[businessStore.refreshSuppliers] API items=", raw.length);
+        const items = raw.map((it: any) => mapApiSupplierItemToSupplier(it));
         const others = getState().suppliers.filter(
           (s) => s.businessId !== businessId,
         );
         setState({ suppliers: [...items, ...others] });
+        await flush();
         return;
       }
     }
 
-    // fallback demo
+    console.log("[businessStore.refreshSuppliers] fallback demo");
+
     try {
       const list = await businessService.listSuppliers(businessId);
 
@@ -484,7 +704,7 @@ export const businessActions = {
           ? list
           : [
               {
-                id: `sup-demo-${businessId}`,
+                id: `sup-demo-${businessId}` as any,
                 businessId,
                 name: "Proveedor Demo",
                 contactName: "Contacto Demo",
@@ -499,6 +719,7 @@ export const businessActions = {
         (s) => s.businessId !== businessId,
       );
       setState({ suppliers: [...seed, ...others] });
+      await flush();
     } catch {
       // demo
     }
@@ -508,20 +729,41 @@ export const businessActions = {
     input: Omit<Supplier, "id" | "createdAt">,
     token?: string,
   ) {
-    // API real
+    console.log(
+      "[businessStore.createSupplier] businessId=",
+      input.businessId,
+      "name=",
+      input.name,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     if (token) {
-      const apiRes = await tryApi(() =>
-        suppliersApi.create(token, input.businessId, input),
+      const apiRes = await tryApi(
+        () =>
+          suppliersApi.create(
+            token,
+            input.businessId,
+            buildSupplierApiBody(input),
+          ),
+        "suppliersApi.create",
       );
-      const created = (apiRes as any)?.data?.supplier as Supplier | undefined;
-      if (created) {
+
+      const it = (apiRes as any)?.data?.item;
+      if (it) {
+        const created = {
+          ...mapApiSupplierItemToSupplier(it),
+          contactName: input.contactName,
+          notes: input.notes,
+        };
         setState({ suppliers: [created, ...getState().suppliers] });
         await flush();
         return created;
       }
     }
 
-    // fallback demo
+    console.log("[businessStore.createSupplier] fallback demo");
+
     const created = await businessService.createSupplier(input);
     setState({ suppliers: [created, ...getState().suppliers] });
     await flush();
@@ -529,6 +771,17 @@ export const businessActions = {
   },
 
   async updateSupplier(id: ID, patch: Partial<Supplier>, token?: string) {
+    console.log(
+      "[businessStore.updateSupplier] id=",
+      id,
+      "patch=",
+      patch,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
+    const current = getState().suppliers.find((s) => s.id === id) ?? null;
+
     setState({
       suppliers: getState().suppliers.map((s) =>
         s.id === id ? { ...s, ...patch } : s,
@@ -536,16 +789,17 @@ export const businessActions = {
     });
     await flush();
 
-    if (token) {
-      const bizId =
-        patch.businessId ??
-        getState().suppliers.find((s) => s.id === id)?.businessId;
-      if (bizId) {
-        const ok = await tryApi(() =>
-          suppliersApi.update(token, bizId, id, patch),
-        );
-        if (ok) return getState().suppliers.find((s) => s.id === id) ?? null;
-      }
+    if (token && current?.businessId) {
+      await tryApi(
+        () =>
+          suppliersApi.update(token, current.businessId, id, {
+            name: patch.name ?? current.name,
+            email: patch.email ?? current.email ?? null,
+            phone: patch.phone ?? current.phone ?? null,
+            address: null,
+          }),
+        "suppliersApi.update",
+      );
     }
 
     try {
@@ -559,14 +813,24 @@ export const businessActions = {
 
   async deleteSupplier(id: ID, token?: string) {
     const sup = getState().suppliers.find((s) => s.id === id);
+
+    console.log(
+      "[businessStore.deleteSupplier] id=",
+      id,
+      "businessId=",
+      sup?.businessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     setState({ suppliers: getState().suppliers.filter((s) => s.id !== id) });
     await flush();
 
     if (token && sup?.businessId) {
-      const ok = await tryApi(() =>
-        suppliersApi.remove(token, sup.businessId, id),
+      await tryApi(
+        () => suppliersApi.remove(token, sup.businessId, id),
+        "suppliersApi.remove",
       );
-      if (ok) return;
     }
 
     try {

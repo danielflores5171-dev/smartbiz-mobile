@@ -48,6 +48,106 @@ export default function ChangePassword() {
             (Demo) La contraseña actual válida es: 123456
           </Text>
 
+          <View
+            style={{
+              backgroundColor: colors.card2,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 18,
+              padding: 14,
+              marginTop: 14,
+              marginBottom: 8,
+            }}
+          >
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}
+            >
+              Estado del módulo
+            </Text>
+
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.divider,
+                marginVertical: 12,
+              }}
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 99,
+                  backgroundColor: "#22c55e",
+                  marginTop: 4,
+                }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "900",
+                    fontSize: 14,
+                  }}
+                >
+                  Conectado con web • falta autorización
+                </Text>
+                <Text
+                  style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+                >
+                  La estructura de cambio de contraseña y su ruta ya están
+                  preparadas para integrarse con la web; falta autorización
+                  Bearer/cookies y activación del endpoint real de seguridad.
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ height: 12 }} />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 99,
+                  backgroundColor: "#f59e0b",
+                  marginTop: 4,
+                }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "900",
+                    fontSize: 14,
+                  }}
+                >
+                  Local/demo • se añadirá en próximas actualizaciones
+                </Text>
+                <Text
+                  style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+                >
+                  La validación de contraseña actual, confirmación y guardado
+                  siguen operando en modo demo/local y se conectarán a backend
+                  real en futuras actualizaciones.
+                </Text>
+              </View>
+            </View>
+          </View>
+
           <AppInput
             label="Contraseña actual"
             value={currentPassword}

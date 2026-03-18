@@ -1,18 +1,21 @@
+// app/(tabs)/reports/export.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
-import AppButton from "@/src/ui/AppButton";
-import Screen from "@/src/ui/Screen";
-
+import { useAuthStore } from "@/src/store/authStore";
 import { useBusinessStore } from "@/src/store/businessStore";
 import {
   inventoryActions,
   useInventoryStore,
 } from "@/src/store/inventoryStore";
+import { reportsActions } from "@/src/store/reportsStore";
 import { useSalesStore } from "@/src/store/salesStore";
+import AppButton from "@/src/ui/AppButton";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
+import Screen from "@/src/ui/Screen";
 
 type ExportKind = "csv" | "txt" | "pdf" | "docx" | "xlsx";
 
@@ -35,12 +38,12 @@ const KINDS: { kind: ExportKind; label: string; icon: any; hint: string }[] = [
     icon: "grid-outline",
     hint: "Demo (placeholder)",
   },
-  { kind: "csv", label: "CSV", icon: "list-outline", hint: "Real (texto)" },
+  { kind: "csv", label: "CSV", icon: "list-outline", hint: "Backend + token" },
   {
     kind: "txt",
     label: "TXT",
     icon: "code-slash-outline",
-    hint: "Real (texto)",
+    hint: "Local (texto)",
   },
 ];
 
@@ -113,8 +116,8 @@ async function writeAndShareFile(params: {
     Alert.alert("Exportado", `Archivo generado:\n${uri}`);
   } catch {
     Alert.alert(
-      "Export (demo)",
-      "No se pudo generar/compartir el archivo.\n\nContenido (copia/pega):\n\n" +
+      "Export",
+      "No se pudo generar/compartir el archivo.\n\nContenido:\n\n" +
         content.slice(0, 1400) +
         (content.length > 1400 ? "\n\n...(recortado)" : ""),
     );
@@ -123,7 +126,10 @@ async function writeAndShareFile(params: {
 
 export default function ReportsExport() {
   const router = useRouter();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const token = useAuthStore((s) => s.token);
 
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const activeBiz = useBusinessStore(
@@ -143,11 +149,13 @@ export default function ReportsExport() {
   const [kind, setKind] = useState<ExportKind>("csv");
 
   useEffect(() => {
-    void inventoryActions.bootstrap().then(() => {
-      if (activeBusinessId)
-        void inventoryActions.loadProducts(activeBusinessId);
+    if (!userId) return;
+    void inventoryActions.bootstrap(userId).then(() => {
+      if (activeBusinessId) {
+        void inventoryActions.loadProducts(activeBusinessId, token);
+      }
     });
-  }, [activeBusinessId]);
+  }, [userId, activeBusinessId, token]);
 
   const cutoff = useMemo(() => Date.now() - days * 24 * 60 * 60 * 1000, [days]);
 
@@ -236,7 +244,7 @@ export default function ReportsExport() {
   const prettySummary = useMemo(() => {
     const bizName = activeBiz?.name ?? "Negocio";
     return [
-      `SMARTBIZ - REPORTE (DEMO)`,
+      `SMARTBIZ - REPORTE`,
       `Negocio: ${bizName}`,
       `Periodo: últimos ${days} días`,
       `Generado: ${new Date().toLocaleString()}`,
@@ -254,8 +262,6 @@ export default function ReportsExport() {
       ``,
       `MOVIMIENTOS INVENTARIO (periodo)`,
       `- Ajustes: ${adjustments.length}`,
-      ``,
-      `NOTA: PDF/DOCX/XLSX aún es placeholder. Luego lo hacemos real.`,
     ].join("\n");
   }, [
     activeBiz?.name,
@@ -375,12 +381,37 @@ export default function ReportsExport() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
 
     if (kind === "csv") {
+      const range = days === 7 ? "7d" : days === 30 ? "month" : "";
+      const csvRes = await reportsActions.downloadSalesCsv(
+        activeBusinessId,
+        token,
+        { range },
+      );
+
+      if (csvRes?.text) {
+        console.log(
+          "[ReportsExport] CSV backend OK bytes=",
+          csvRes.text.length,
+          "tokenHead=",
+          String(token ?? "").slice(0, 10),
+        );
+
+        await writeAndShareFile({
+          filename: `smartbiz_report_${bizName}_${stamp}.csv`,
+          content: csvRes.text,
+          mimeType: "text/csv",
+        });
+        return;
+      }
+
+      console.log("[ReportsExport] CSV backend FAIL -> using local fallback");
+
       const salesCSV = toCSV(exportPayload.salesRows);
       const invCSV = toCSV(exportPayload.invRows);
       const adjCSV = toCSV(exportPayload.adjRows);
 
       const content = [
-        "# SMARTBIZ REPORT (CSV DEMO)",
+        "# SMARTBIZ REPORT (CSV FALLBACK LOCAL)",
         `# business=${bizName}`,
         `# period_days=${days}`,
         `# generated=${new Date().toISOString()}`,
@@ -427,7 +458,7 @@ export default function ReportsExport() {
         2,
       );
 
-      const content = `${prettySummary}\n\n---\n\nJSON (demo)\n${json}\n`;
+      const content = `${prettySummary}\n\n---\n\nJSON (local)\n${json}\n`;
       await writeAndShareFile({
         filename: `smartbiz_report_${bizName}_${stamp}.txt`,
         content,
@@ -452,9 +483,14 @@ export default function ReportsExport() {
         Exportar reportes
       </Text>
       <Text style={{ color: colors.muted, marginTop: 6 }}>
-        Exporta datos del negocio activo (demo). CSV/TXT son reales;
-        PDF/DOCX/XLSX son placeholder.
+        Exporta datos del negocio activo. CSV intenta backend autenticado; si no
+        autoriza, cae a local.
       </Text>
+
+      <ModuleStatusCard
+        connectedText="Exportación CSV, preparación de payload y consumo del endpoint web de reportes ya están integrados; falta autorización Bearer/cookies para exportar desde backend real."
+        demoText="TXT local, fallback CSV local y placeholders de PDF/DOCX/XLSX siguen en modo demo y se completarán en próximas actualizaciones."
+      />
 
       <View
         style={{
@@ -552,7 +588,8 @@ export default function ReportsExport() {
           Formato de exportación
         </Text>
         <Text style={{ color: colors.muted, marginTop: 6 }}>
-          Elige el formato. CSV/TXT son reales; los demás son demo por ahora.
+          CSV usa backend con token. TXT funciona local. PDF/DOCX/XLSX siguen
+          como placeholder.
         </Text>
 
         <View

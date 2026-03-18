@@ -23,6 +23,7 @@ export default function InventoryCreate() {
 
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const authUser = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
 
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
@@ -33,7 +34,6 @@ export default function InventoryCreate() {
   const [stock, setStock] = useState("0");
   const [minStock, setMinStock] = useState("");
 
-  // ✅ imagen temporal antes de crear (porque aún no hay productId)
   const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   const can = useMemo(
@@ -77,7 +77,6 @@ export default function InventoryCreate() {
             padding: 16,
           }}
         >
-          {/* Header + Volver */}
           <View
             style={{
               flexDirection: "row",
@@ -93,7 +92,7 @@ export default function InventoryCreate() {
                 Crear producto
               </Text>
               <Text style={{ color: colors.muted, marginTop: 6 }}>
-                (Demo) Se guarda local y persiste.
+                Se intenta sincronizar con backend; si no autoriza, cae a demo.
               </Text>
             </View>
 
@@ -105,7 +104,108 @@ export default function InventoryCreate() {
             />
           </View>
 
-          {/* ✅ Imagen */}
+          <View
+            style={{
+              backgroundColor: colors.card2,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 18,
+              padding: 14,
+              marginTop: 14,
+              marginBottom: 12,
+            }}
+          >
+            <Text
+              style={{ color: colors.text, fontWeight: "900", fontSize: 16 }}
+            >
+              Estado del módulo
+            </Text>
+
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.divider,
+                marginVertical: 12,
+              }}
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 99,
+                  backgroundColor: "#22c55e",
+                  marginTop: 4,
+                }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "900",
+                    fontSize: 14,
+                  }}
+                >
+                  Conectado con web • falta autorización
+                </Text>
+                <Text
+                  style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+                >
+                  El alta de producto, estructura de campos, guardado principal
+                  y asociación de imagen ya coinciden con la web; falta
+                  autorización Bearer/cookies y completar el ajuste web de
+                  imágenes/rutas para persistencia remota total.
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ height: 12 }} />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 99,
+                  backgroundColor: "#f59e0b",
+                  marginTop: 4,
+                }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "900",
+                    fontSize: 14,
+                  }}
+                >
+                  Local/demo • se añadirá en próximas actualizaciones
+                </Text>
+                <Text
+                  style={{ color: colors.muted, marginTop: 6, lineHeight: 22 }}
+                >
+                  El picker de imagen, el respaldo local del producto y el
+                  fallback de subida/adjunto siguen funcionando en demo mientras
+                  backend no autoriza o aún faltan ajustes finales de imágenes
+                  en próximas actualizaciones.
+                </Text>
+              </View>
+            </View>
+          </View>
+
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 12 }}>
             Imagen (opcional)
           </Text>
@@ -248,21 +348,33 @@ export default function InventoryCreate() {
               onPress={async () => {
                 if (!can) return;
 
-                const created = await inventoryActions.createProduct({
-                  businessId: activeBusinessId,
-                  name: name.trim(),
-                  sku: sku.trim() || undefined,
-                  barcode: barcode.trim() || undefined,
-                  unit,
-                  price: Number(price) || 0,
-                  cost: Number(cost) || 0,
-                  stock: Number(stock) || 0,
-                  minStock: minStock.trim() ? Number(minStock) || 0 : undefined,
-                  status: "active",
-                  // ✅ imageUri se setea después de tener productId
-                });
+                console.log(
+                  "[InventoryCreate] save businessId=",
+                  activeBusinessId,
+                  "name=",
+                  name.trim(),
+                  "tokenHead=",
+                  String(token ?? "").slice(0, 10),
+                );
 
-                // ✅ Si eligieron imagen, la guardamos en ruta estable y actualizamos producto
+                const created = await inventoryActions.createProduct(
+                  {
+                    businessId: activeBusinessId,
+                    name: name.trim(),
+                    sku: sku.trim() || undefined,
+                    barcode: barcode.trim() || undefined,
+                    unit,
+                    price: Number(price) || 0,
+                    cost: Number(cost) || 0,
+                    stock: Number(stock) || 0,
+                    minStock: minStock.trim()
+                      ? Number(minStock) || 0
+                      : undefined,
+                    status: "active",
+                  },
+                  token ?? undefined,
+                );
+
                 if (tempImageUri && authUser?.id) {
                   try {
                     const stableUri = await productImageService.saveForProduct({
@@ -271,15 +383,24 @@ export default function InventoryCreate() {
                       pickedUri: tempImageUri,
                     });
 
-                    await inventoryActions.updateProduct(created.id, {
-                      imageUri: stableUri,
-                    });
+                    console.log(
+                      "[InventoryCreate] attach image productId=",
+                      created.id,
+                      "tokenHead=",
+                      String(token ?? "").slice(0, 10),
+                    );
+
+                    await inventoryActions.attachProductImage(
+                      created.id,
+                      stableUri,
+                      token ?? undefined,
+                    );
                   } catch (e) {
-                    console.warn("No se pudo guardar imagen:", e);
-                    // no tronamos el flujo
+                    console.warn("No se pudo guardar/subir imagen:", e);
                   }
                 }
 
+                console.log("[InventoryCreate] save OK productId=", created.id);
                 router.replace("/inventory" as any);
               }}
               disabled={!can}

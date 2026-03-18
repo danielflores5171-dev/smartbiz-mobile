@@ -1,4 +1,3 @@
-// app/(tabs)/sales/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -7,6 +6,7 @@ import { Image, Pressable, Text, View } from "react-native";
 import { useTheme } from "@/context/theme-context";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 import Screen from "@/src/ui/Screen";
 
 import { useAuthStore } from "@/src/store/authStore";
@@ -24,6 +24,7 @@ export default function SalesIndex() {
   const { colors } = useTheme();
 
   const authUser = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
 
   const activeBusinessId = useBusinessStore((s) => s.activeBusinessId);
   const allProducts = useInventoryStore((s) => s.products ?? []);
@@ -34,26 +35,44 @@ export default function SalesIndex() {
   useEffect(() => {
     let alive = true;
 
+    console.log(
+      "[SalesIndex] effect start userId=",
+      authUser?.id,
+      "businessId=",
+      activeBusinessId,
+      "tokenHead=",
+      String(token ?? "").slice(0, 10),
+    );
+
     (async () => {
-      if (authUser?.id) {
-        await salesActions.bootstrap(authUser.id);
-        await inventoryActions.bootstrap(authUser.id);
-      } else {
-        await inventoryActions.bootstrap();
+      if (!authUser?.id) {
+        console.log("[SalesIndex] no auth user");
+        return;
       }
+
+      await salesActions.bootstrap(authUser.id);
+      await inventoryActions.bootstrap(authUser.id);
 
       if (!alive) return;
 
-      if (activeBusinessId) {
-        await inventoryActions.loadProducts(activeBusinessId);
-        if (authUser?.id) await salesActions.loadSales(activeBusinessId);
+      if (!activeBusinessId) {
+        console.log("[SalesIndex] no active business");
+        return;
       }
+
+      console.log(
+        "[SalesIndex] loading products and sales for businessId=",
+        activeBusinessId,
+      );
+
+      await inventoryActions.loadProducts(activeBusinessId, token ?? undefined);
+      await salesActions.loadSales(activeBusinessId, token ?? undefined);
     })();
 
     return () => {
       alive = false;
     };
-  }, [authUser?.id, activeBusinessId]);
+  }, [authUser?.id, activeBusinessId, token]);
 
   const products = useMemo(() => {
     if (!activeBusinessId) return [];
@@ -119,6 +138,11 @@ export default function SalesIndex() {
           />
         </View>
 
+        <ModuleStatusCard
+          connectedText="Carga de productos para venta, historial, estructura de checkout y registro de ventas ya coinciden con la web; falta autorización Bearer/cookies para operar contra backend real."
+          demoText="Carrito local, cálculos temporales, respaldo de historial demo y parte del flujo de venta mientras backend no autoriza."
+        />
+
         <View
           style={{
             height: 1,
@@ -171,7 +195,6 @@ export default function SalesIndex() {
                     gap: 10,
                   }}
                 >
-                  {/* ✅ Miniatura */}
                   <View
                     style={{
                       width: 54,
@@ -227,6 +250,13 @@ export default function SalesIndex() {
 
                   <Pressable
                     onPress={() => {
+                      console.log(
+                        "[SalesIndex] addToCart productId=",
+                        p.id,
+                        "name=",
+                        p.name,
+                      );
+
                       const payload: Omit<CartItem, "qty"> = {
                         productId: p.id,
                         name: p.name,
