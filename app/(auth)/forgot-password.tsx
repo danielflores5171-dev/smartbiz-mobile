@@ -8,6 +8,7 @@ import { authActions } from "@/src/store/authStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 function isValidEmail(v: string) {
   const x = v.trim().toLowerCase();
@@ -39,25 +40,26 @@ export default function ForgotPasswordScreen() {
 
       const out = await authActions.requestPasswordReset(e);
 
-      setOkMsg("Se generó un código demo para restablecer tu contraseña.");
+      setOkMsg(
+        "Se envió la solicitud de recuperación. Revisa tu correo y, si lo necesitas, también puedes continuar con el flujo demo interno.",
+      );
 
-      const goNext = () =>
-        router.push({
-          pathname: "/(auth)/confirmation-token" as any,
-          params: { email: e },
-        } as any);
-
-      if (out?.devCode) {
-        Alert.alert("Código demo", `Tu código es: ${out.devCode}`, [
-          { text: "OK", onPress: goNext },
-        ]);
-      } else {
-        Alert.alert(
-          "Aviso",
-          "No se recibió devCode. Revisa authService actualizado y reinicia con -c.",
-          [{ text: "OK", onPress: goNext }],
-        );
-      }
+      Alert.alert(
+        "Recuperación iniciada",
+        out?.devCode
+          ? `Se envió el correo real de recuperación. Como apoyo interno, también se generó un código demo: ${out.devCode}`
+          : "Se envió el correo real de recuperación. Revisa tu bandeja de entrada o spam.",
+        [
+          {
+            text: "Continuar",
+            onPress: () =>
+              router.push({
+                pathname: "/(auth)/confirmation-token" as any,
+                params: { email: e },
+              } as any),
+          },
+        ],
+      );
     } catch (err: any) {
       setErrorMsg(err?.message ?? "No se pudo procesar la solicitud.");
     } finally {
@@ -84,11 +86,15 @@ export default function ForgotPasswordScreen() {
         </Text>
 
         <Text style={{ color: colors.muted, marginTop: 8, lineHeight: 18 }}>
-          Escribe tu correo y se generará un código para restablecer tu
-          contraseña.
-          {"\n"}
-          (Demo: no llega por correo real)
+          Escribe tu correo para iniciar la recuperación de tu cuenta.
         </Text>
+
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="La solicitud de recuperación ya se envía con backend real mediante Supabase y dispara el correo de restablecimiento."
+            demoText="La verificación por código y el recorrido interno dentro de la app se mantienen como apoyo visual/demo; el cambio real de contraseña depende del enlace enviado por correo."
+          />
+        </View>
 
         <AppInput
           label="Correo electrónico"
@@ -113,7 +119,7 @@ export default function ForgotPasswordScreen() {
 
         <View style={{ marginTop: 16 }}>
           <AppButton
-            title={loading ? "GENERANDO..." : "ENVIAR CÓDIGO"}
+            title={loading ? "ENVIANDO..." : "ENVIAR RECUPERACIÓN"}
             onPress={onSubmit}
             variant="primary"
             loading={loading}

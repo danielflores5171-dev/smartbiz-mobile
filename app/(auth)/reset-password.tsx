@@ -8,6 +8,7 @@ import { authActions } from "@/src/store/authStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
@@ -46,10 +47,15 @@ export default function ResetPasswordScreen() {
     try {
       setLoading(true);
       await authActions.resetPassword(email, code, pass);
-      Alert.alert("Listo", "Contraseña actualizada (demo).");
+
+      Alert.alert(
+        "Flujo demo completado",
+        "Este cierre sirve como apoyo visual dentro de la app. El cambio real de contraseña en producción se realiza desde el enlace enviado a tu correo.",
+      );
+
       router.replace("/(auth)/login" as any);
     } catch (err: any) {
-      setErrorMsg(err?.message ?? "No se pudo actualizar la contraseña.");
+      setErrorMsg(err?.message ?? "No se pudo continuar con el flujo.");
     } finally {
       setLoading(false);
     }
@@ -73,8 +79,15 @@ export default function ResetPasswordScreen() {
           Nueva contraseña
         </Text>
         <Text style={{ color: colors.muted, marginTop: 8 }}>
-          Crea una nueva contraseña para tu cuenta.
+          Completa el recorrido interno de recuperación.
         </Text>
+
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="La recuperación real del proveedor ya existe mediante correo y enlace seguro."
+            demoText="Esta pantalla se conserva como cierre visual/demo dentro de la app; el cambio real de contraseña depende del enlace enviado por correo."
+          />
+        </View>
 
         <AppInput
           label="Nueva contraseña"
@@ -99,7 +112,7 @@ export default function ResetPasswordScreen() {
 
         <View style={{ marginTop: 16 }}>
           <AppButton
-            title={loading ? "GUARDANDO..." : "GUARDAR"}
+            title={loading ? "FINALIZANDO..." : "FINALIZAR"}
             onPress={onSubmit}
             variant="primary"
             loading={loading}

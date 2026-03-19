@@ -4,15 +4,14 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
+import { apiRequest } from "@/src/lib/apiClient";
+import { ENV } from "@/src/lib/env";
 import { authActions } from "@/src/store/authStore";
 import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
-
-// ✅ API client (puente móvil → web)
-import { apiRequest } from "@/src/lib/apiClient";
-import { ENV } from "@/src/lib/env"; // para API_BASE_URL
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 function isValidEmail(v: string) {
   const x = v.trim().toLowerCase();
@@ -51,17 +50,13 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
-      // ✅ Limpia widgets (por si venías de otro usuario / demo)
       useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 
-      // 1) Login (tu authService devuelve session.token)
       const session = await authActions.login(e, p);
 
-      // ✅ DIAGNÓSTICO: ver si el token es JWT real (debe empezar con "eyJ")
       const token = session?.token ?? "";
       console.log("TOKEN_HEAD", String(token).slice(0, 10));
 
-      // 2) ✅ Puente móvil → web: token → /api/auth/me (Bearer)
       try {
         if (!token) {
           console.log("[bridge] Login OK, pero session.token viene vacío");
@@ -76,15 +71,13 @@ export default function LoginScreen() {
         console.log("[bridge] /api/auth/me FAIL:", String(bridgeErr));
       }
 
-      // 2b) ⚠️ Prueba alternativa (cookies) — SOLO para demostrar que en RN no sirve
-      // Nota: credentials/include en RN no garantiza cookies como navegador.
       try {
         const API_BASE_URL = String(ENV.API_BASE_URL ?? "").replace(/\/+$/, "");
         const url = `${API_BASE_URL}/api/auth/me`;
 
         const res = await fetch(url, {
           method: "GET",
-          // @ts-ignore: en RN puede ignorarse/variar; lo dejamos solo para test
+          // @ts-ignore
           credentials: "include",
           headers: { "Content-Type": "application/json" },
         });
@@ -96,7 +89,6 @@ export default function LoginScreen() {
         console.log("[bridge-cookie] FAIL:", String(e));
       }
 
-      // 3) Navega normal
       router.replace("/(tabs)/dashboard" as any);
     } catch (err: any) {
       setErrorMsg(err?.message ?? "Error al iniciar sesión.");
@@ -126,6 +118,13 @@ export default function LoginScreen() {
         <Text style={{ color: colors.muted, marginTop: 8, lineHeight: 18 }}>
           Accede con tu cuenta para continuar.
         </Text>
+
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="Inicio de sesión, obtención de token JWT desde Supabase y validación inicial del usuario contra /api/auth/me ya funcionan con backend real."
+            demoText="La sesión por cookies del navegador no aplica igual en React Native; la sincronización completa con algunos módulos todavía depende de cerrar la autorización final por Bearer/token del lado web."
+          />
+        </View>
 
         <AppInput
           label="Correo electrónico"

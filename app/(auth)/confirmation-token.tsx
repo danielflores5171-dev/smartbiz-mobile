@@ -6,6 +6,7 @@ import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { useTheme } from "@/context/theme-context";
 import { authActions, useAuthStore } from "@/src/store/authStore";
 import AuthFrame from "@/src/ui/AuthFrame";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim().toLowerCase());
@@ -18,9 +19,10 @@ export default function ConfirmationTokenScreen() {
 
   const emailParam = typeof params.email === "string" ? params.email : "";
   const devCode = useAuthStore((s) => s.resetDevCode);
+  const resetEmail = useAuthStore((s) => s.resetEmail);
 
   const [code, setCode] = useState("");
-  const [email, setEmail] = useState(emailParam);
+  const [email, setEmail] = useState(emailParam || resetEmail || "");
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export default function ConfirmationTokenScreen() {
   const onConfirm = async () => {
     setErrorMsg(null);
 
-    const e = email.trim();
+    const e = email.trim().toLowerCase();
     const c = code.trim();
 
     if (!e) return setErrorMsg("Escribe tu correo.");
@@ -41,7 +43,10 @@ export default function ConfirmationTokenScreen() {
       setLoading(true);
       await authActions.verifyResetCode(e, c);
 
-      Alert.alert("Código verificado", "Ahora puedes cambiar tu contraseña.");
+      Alert.alert(
+        "Código verificado",
+        "Puedes continuar con el flujo interno de recuperación.",
+      );
 
       router.push({
         pathname: "/(auth)/reset-password" as any,
@@ -71,13 +76,21 @@ export default function ConfirmationTokenScreen() {
         </Text>
 
         <Text style={{ color: colors.muted, marginTop: 8, lineHeight: 20 }}>
-          Ingresa el código que recibiste. (Modo demo)
+          Ingresa el código de apoyo interno para continuar con el recorrido
+          demo dentro de la app.
         </Text>
 
-        {/* ✅ MOSTRAR SIEMPRE el código demo si existe */}
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="El proceso real de recuperación ya está habilitado por correo mediante Supabase."
+            demoText="Esta pantalla funciona como apoyo interno/demo para mostrar el recorrido dentro de la app; la recuperación real se confirma desde el enlace enviado al correo."
+          />
+        </View>
+
         {devCode ? (
           <Text style={{ color: colors.muted, marginTop: 8, fontSize: 12 }}>
-            Código demo: <Text style={{ fontWeight: "900" }}>{devCode}</Text>
+            Código demo de apoyo:{" "}
+            <Text style={{ fontWeight: "900" }}>{devCode}</Text>
           </Text>
         ) : null}
 

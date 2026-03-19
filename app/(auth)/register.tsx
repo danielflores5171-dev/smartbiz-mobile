@@ -5,11 +5,12 @@ import { Pressable, Text, View } from "react-native";
 
 import { useTheme } from "@/context/theme-context";
 import { authActions } from "@/src/store/authStore";
-import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore"; // ✅ ADD
+import { useDashboardWidgetsStore } from "@/src/store/dashboardWidgetsStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthCard from "@/src/ui/AuthCard";
 import AuthFrame from "@/src/ui/AuthFrame";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 function isValidEmail(v: string) {
   const x = v.trim().toLowerCase();
@@ -20,7 +21,6 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { colors } = useTheme();
 
-  // ✅ Solo lo necesario
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -51,7 +51,6 @@ export default function RegisterScreen() {
     try {
       setLoading(true);
 
-      // ✅ Limpia widgets (por consistencia)
       useDashboardWidgetsStore.getState().clearLocalMemoryOnly();
 
       await authActions.register(e, p, fullName);
@@ -81,6 +80,13 @@ export default function RegisterScreen() {
         <Text style={{ color: colors.muted, marginTop: 6 }}>
           Crea tu cuenta para empezar
         </Text>
+
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="El registro de cuenta ya funciona con backend real mediante Supabase, incluyendo creación de usuario y almacenamiento inicial de sesión."
+            demoText="La confirmación final por correo y la coincidencia total con algunos flujos del lado web todavía dependen de la configuración final del proveedor y de la autorización entre App y Web."
+          />
+        </View>
 
         <AppInput
           label="Nombre"

@@ -8,6 +8,7 @@ import { authActions } from "@/src/store/authStore";
 import AppButton from "@/src/ui/AppButton";
 import AppInput from "@/src/ui/AppInput";
 import AuthFrame from "@/src/ui/AuthFrame";
+import ModuleStatusCard from "@/src/ui/ModuleStatusCard";
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim().toLowerCase());
@@ -32,23 +33,22 @@ export default function ResendCodeScreen() {
       setLoading(true);
       const out = await authActions.resendPasswordReset(e);
 
-      const goNext = () =>
-        router.push({
-          pathname: "/(auth)/confirmation-token" as any,
-          params: { email: e },
-        } as any);
-
-      if (out?.devCode) {
-        Alert.alert("Código demo (reenviado)", `Tu código es: ${out.devCode}`, [
-          { text: "OK", onPress: goNext },
-        ]);
-      } else {
-        Alert.alert(
-          "Aviso",
-          "No llegó devCode. Revisa authService y reinicia con -c.",
-          [{ text: "OK", onPress: goNext }],
-        );
-      }
+      Alert.alert(
+        "Recuperación reenviada",
+        out?.devCode
+          ? `Se volvió a enviar la recuperación real por correo y también se generó un nuevo código demo de apoyo: ${out.devCode}`
+          : "Se volvió a enviar la recuperación real por correo. Revisa tu bandeja de entrada o spam.",
+        [
+          {
+            text: "Continuar",
+            onPress: () =>
+              router.push({
+                pathname: "/(auth)/confirmation-token" as any,
+                params: { email: e },
+              } as any),
+          },
+        ],
+      );
     } catch (err: any) {
       setErrorMsg(err?.message ?? "No se pudo reenviar.");
     } finally {
@@ -74,8 +74,15 @@ export default function ResendCodeScreen() {
           Reenviar código
         </Text>
         <Text style={{ color: colors.muted, marginTop: 8 }}>
-          Si no te llegó el código, vuelve a solicitarlo (demo).
+          Solicita de nuevo la recuperación para seguir con el flujo interno.
         </Text>
+
+        <View style={{ marginTop: 12 }}>
+          <ModuleStatusCard
+            connectedText="El reenvío de la recuperación vuelve a disparar el proceso real por correo desde Supabase."
+            demoText="El código mostrado dentro de la app se mantiene como apoyo/demo para conservar el recorrido visual interno mientras el cambio real depende del enlace del correo."
+          />
+        </View>
 
         <AppInput
           label="Correo electrónico"
